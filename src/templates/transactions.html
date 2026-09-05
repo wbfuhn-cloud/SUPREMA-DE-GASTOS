@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transacciones | ASISTENTE FINANCIERO</title>
+<script>
+window.ALL_CATEGORIES = {{ cats_json | safe }};
+/* Tema ANTES que cualquier CSS para evitar flash */
+(function(){
+    var t = localStorage.getItem('theme') || 'light';
+    document.documentElement.className = t;
+})();
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: { colors: { primary: '#5631E8' } } }
+}
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0" rel="stylesheet">
+<style>
+:root { --primary: #5631E8; }
+
+/* ── Fondos por tema ── */
+body {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+}
+html.dark body {
+    background: linear-gradient(135deg, #020617 0%, #1e1b4b 50%, #4c1d95 100%) !important;
+    background-attachment: fixed !important;
+}
+
+/* ── Glass card ── */
+.glass-card {
+    backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
+    -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    box-shadow:
+        0 4px 24px rgba(0,0,0,0.10),
+        inset 0 1px 0 rgba(255,255,255,0.18);
+    position: relative;
+    z-index: 10;
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+html:not(.dark) .glass-card {
+    background: rgba(255,255,255,0.72);
+    border-color: rgba(255,255,255,0.60);
+}
+html.dark .glass-card {
+    background: rgba(20,27,56,0.62) !important;
+    border-color: rgba(255,255,255,0.07) !important;
+    box-shadow:
+        0 4px 32px rgba(0,0,0,0.35),
+        inset 0 1px 0 rgba(255,255,255,0.06) !important;
+}
+.glass-card:hover {
+    border-color: rgba(86,49,232,0.25);
+}
+html.dark .glass-card:hover {
+    border-color: rgba(129,140,248,0.2) !important;
+}
+
+/* ── Material icons ── */
+.material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* ── Form inputs ── */
+.form-input {
+    width: 100%;
+    background: rgba(255,255,255,0.5);
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    color: #1e293b;
+    transition: all 0.2s;
+    outline: none;
+}
+.form-input:focus { border-color: #818cf8; box-shadow: 0 0 0 2px rgba(129,140,248,0.2); }
+html.dark .form-input {
+    background: rgba(2,6,23,0.5);
+    border-color: rgba(255,255,255,0.12);
+    color: #e2e8f0;
+}
+html.dark .form-input:focus { border-color: #818cf8; background: rgba(2,6,23,0.7); }
+
+/* ── Toast ── */
+.toast {
+    position: fixed; bottom: 24px; right: 24px;
+    transform: translateY(100px);
+    transition: all 0.4s cubic-bezier(0.175,0.885,0.32,1.275);
+    z-index: 2000; opacity: 0; pointer-events: none;
+}
+.toast.show { transform: translateY(0); opacity: 1; pointer-events: auto; }
+
+/* ── Date wrapper ── */
+.date-wrapper {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    cursor: pointer; background: rgba(255,255,255,0.4);
+    border: 1px solid rgba(255,255,255,0.3); border-radius: 0.5rem;
+    padding: 0.4rem 0.65rem; transition: all 0.2s; white-space: nowrap;
+}
+.date-wrapper:hover { border-color: #818cf8; background: rgba(129,140,248,0.08); }
+html.dark .date-wrapper { background: rgba(2,6,23,0.4); border-color: rgba(255,255,255,0.1); }
+html.dark .date-wrapper:hover { border-color: #818cf8; }
+.date-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em; color: #1e293b; }
+html.dark .date-label { color: #e2e8f0; }
+.date-icon { font-size: 14px !important; color: #94a3b8; }
+.date-hidden { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+
+/* ── Table rows ── */
+.tx-row { transition: background 0.15s; }
+html.dark .tx-row { color: #e2e8f0; }
+html.dark table thead tr { color: #94a3b8 !important; }
+
+.text-primary { color: var(--primary); }
+
+/* ── Year separator ── */
+.year-separator td {
+    background: rgba(86,49,232,0.04);
+    border-bottom: 2px solid rgba(86,49,232,0.15);
+}
+html.dark .year-separator td {
+    background: rgba(86,49,232,0.08) !important;
+    border-bottom-color: rgba(86,49,232,0.25) !important;
+}
+
+/* ── Header dark ── */
+html.dark header {
+    background: rgba(15,23,42,0.85) !important;
+    border-color: rgba(255,255,255,0.08) !important;
+}
+
+@media (max-width: 768px) {
+    table thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr {
+        margin-bottom: 1.25rem; border-radius: 1.5rem; padding: 1.25rem;
+        border: 1px solid rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.7);
+        backdrop-filter: blur(10px);
+    }
+    html.dark tr { background: rgba(15,23,42,0.7) !important; border-color: rgba(255,255,255,0.1) !important; }
+    td { padding: 0 !important; border: none !important; }
+}
+</style>
+</head>
+<body class="min-h-screen transition-colors duration-300">
+
+<header class="fixed top-0 w-full h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 z-50 flex items-center justify-between px-6 transition-colors duration-300">
+    <div class="flex items-center gap-3">
+        <a href="/dashboard" class="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-400 hover:text-[#5631E8] transition-colors">
+            <span class="material-symbols-outlined">arrow_back</span>
+        </a>
+        <span class="font-bold text-lg text-slate-900 dark:text-white">Transacciones</span>
+        <span class="text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-3 py-1 rounded-full ml-2">
+            <span id="visible-count">0</span> registros
+        </span>
+    </div>
+    <button id="theme-btn" onclick="toggleTheme()" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400">
+        <span class="material-symbols-outlined">dark_mode</span>
+    </button>
+</header>
+
+<main class="pt-24 px-4 md:px-8 max-w-[1400px] mx-auto w-full pb-10">
+
+    <!-- Filtros -->
+    <div class="glass-card rounded-[2rem] p-6 mb-6">
+        <!-- Year tabs -->
+        <div class="flex flex-wrap gap-2 mb-4 pb-4 border-b border-slate-200 dark:border-slate-700/50">
+            {{ years_html | safe }}
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <div class="md:col-span-2">
+                <input type="text" id="filter-search" oninput="applyFilters()" class="form-input" placeholder="&#128269; Buscar...">
+            </div>
+            <div><input type="date" id="filter-date-from" onchange="applyFilters()" class="form-input"></div>
+            <div><input type="date" id="filter-date-to" onchange="applyFilters()" class="form-input"></div>
+            <div><select id="filter-category" onchange="applyFilters()" class="form-input">{{ cat_opts | safe }}</select></div>
+            <div>
+                <select id="filter-type" onchange="applyFilters()" class="form-input">
+                    <option value="">Todos los tipos</option>
+                    <option value="Normal">Normal</option>
+                    <option value="Deuda">Deuda</option>
+                    <option value="Prestamo">Préstamo</option>
+                </select>
+            </div>
+        </div>
+        <div class="mt-4 flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Total filtrado</span>
+            <span class="text-2xl font-black text-primary" id="filtered-total">$0.00</span>
+        </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="glass-card rounded-[2rem] overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full border-collapse" id="main-table">
+                <thead>
+                    <tr class="bg-slate-50/50 dark:bg-slate-900/50 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200 dark:border-slate-700/50">
+                        <th class="p-4">ID</th>
+                        <th class="p-4">Fecha</th>
+                        <th class="p-4">Comercio</th>
+                        <th class="p-4">Categoría</th>
+                        <th class="p-4">Tipo</th>
+                        <th class="p-4">Detalles</th>
+                        <th class="p-4">Monto</th>
+                        <th class="p-4 text-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="transactions-list">{{ rows_html | safe }}</tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<div id="toast" class="toast bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-lg font-bold">
+    <span>&#10003; Guardado</span>
+</div>
+
+<script>
+/* ── Tema ── */
+function toggleTheme() {
+    var next = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
+    document.documentElement.className = next;
+    localStorage.setItem('theme', next);
+    updateThemeIcon(next);
+}
+function updateThemeIcon(theme) {
+    var btn = document.getElementById('theme-btn');
+    if (btn) btn.innerHTML = '<span class="material-symbols-outlined">' + (theme === 'dark' ? 'light_mode' : 'dark_mode') + '</span>';
+}
+/* Aplicar icono según tema actual */
+updateThemeIcon(document.documentElement.className || 'light');
+
+/* ── Formato ── */
+function formatCurrency(val) {
+    var n = parseFloat(String(val).replace(/,/g, '')) || 0;
+    return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function updateDateDisplay(inp) {
+    var wrapper = inp.closest('.date-wrapper');
+    var lbl = wrapper ? wrapper.querySelector('.date-label') : null;
+    if (lbl && inp.value) {
+        try {
+            var d = new Date(inp.value + 'T00:00:00');
+            var ms = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+            lbl.textContent = String(d.getDate()).padStart(2,'0') + ' ' + ms[d.getMonth()] + ' ' + d.getFullYear();
+        } catch(e) {}
+    }
+}
+
+/* ── Carga Diferida de Categorías (Lazy Load Select) ── */
+function ensureCatOptions(sel) {
+    if (sel.dataset.loaded === 'true') return;
+    var currentVal = sel.dataset.val || '';
+    var cats = window.ALL_CATEGORIES || [];
+    
+    var html = '<option value="">(Sin categoría)</option>';
+    var found = false;
+    
+    cats.forEach(function(c) {
+        var isSel = (c === currentVal);
+        if (isSel) found = true;
+        var title = c.charAt(0) + c.slice(1).toLowerCase();
+        html += '<option value="' + c + '"' + (isSel ? ' selected' : '') + '>' + title + '</option>';
+    });
+    
+    if (currentVal && !found) {
+        var title = currentVal.charAt(0) + currentVal.slice(1).toLowerCase();
+        html += '<option value="' + currentVal + '" selected>' + title + '</option>';
+    }
+    
+    html += '<option value="__NEW__" style="font-weight:bold; color:#5631E8;">+ Ingresar manualmente...</option>';
+    
+    sel.innerHTML = html;
+    sel.dataset.loaded = 'true';
+}
+
+async function handleCatSelectChange(sel, eid) {
+    var val = sel.value;
+    if (val === '__NEW__') {
+        var newVal = prompt('Ingresa el nombre de la nueva categoría:');
+        if (newVal && newVal.trim() !== '') {
+            var upperVal = newVal.trim().toUpperCase();
+            sel.dataset.val = upperVal;
+            var success = await updateExpense(eid, 'category', upperVal);
+            if (success) location.reload();
+        } else {
+            sel.value = sel.dataset.val || '';
+        }
+    } else {
+        sel.dataset.val = val;
+        await updateExpense(eid, 'category', val);
+        cleanUnusedCategories();
+        applyFilters();
+    }
+}
+
+/* ── Purga automática de categorías sin uso ── */
+function cleanUnusedCategories() {
+    var activeCats = new Set();
+    document.querySelectorAll('#transactions-list .tx-row').forEach(function(row) {
+        var categoryElem = row.querySelector('[data-field="category"]');
+        var val = categoryElem ? (categoryElem.dataset.val || categoryElem.value || '').toUpperCase().trim() : '';
+        if (val) activeCats.add(val);
+    });
+
+    if (window.ALL_CATEGORIES) {
+        window.ALL_CATEGORIES = Array.from(activeCats).sort();
+    }
+
+    var filterSelect = document.getElementById('filter-category');
+    if (filterSelect) {
+        var currentFilterVal = (filterSelect.value || '').toUpperCase();
+        var html = '<option value="">Categorías</option>';
+        Array.from(activeCats).sort().forEach(function(c) {
+            var title = c.charAt(0) + c.slice(1).toLowerCase();
+            var isSel = (c === currentFilterVal) ? ' selected' : '';
+            html += '<option value="' + c + '"' + isSel + '>' + title + '</option>';
+        });
+        filterSelect.innerHTML = html;
+    }
+
+    document.querySelectorAll('.cat-select').forEach(function(sel) {
+        sel.dataset.loaded = 'false';
+    });
+}
+
+/* ── Filtros ── */
+function applyFilters() {
+    var search   = (document.getElementById('filter-search').value || '').toLowerCase();
+    var from     = document.getElementById('filter-date-from').value;
+    var to       = document.getElementById('filter-date-to').value;
+    var category = (document.getElementById('filter-category').value || '').toUpperCase();
+    var type     = document.getElementById('filter-type').value;
+    var count = 0, total = 0;
+
+    document.querySelectorAll('#transactions-list .tx-row').forEach(function(row) {
+        /* Leer valores desde atributos data-* del <tr> y de los inputs */
+        var idText      = (row.cells[0] ? row.cells[0].textContent : '').toLowerCase();
+        var dateInp     = row.querySelector('input.date-hidden');
+        var dateVal     = dateInp ? dateInp.value : '';
+        var merchantInp = row.querySelector('input[data-field="merchant"]');
+        var merchantVal = merchantInp ? merchantInp.value.toLowerCase() : '';
+        var categoryElem= row.querySelector('[data-field="category"]');
+        var categoryVal = categoryElem ? (categoryElem.dataset.val || categoryElem.value || '').toUpperCase() : '';
+        var typeInp     = row.querySelector('select[data-field="type"]');
+        var typeVal     = typeInp ? typeInp.value : '';
+        var detailsTa   = row.querySelector('textarea[data-field="details"]');
+        var detailsVal  = detailsTa ? detailsTa.value.toLowerCase() : '';
+
+        /* Monto: leer del atributo data-amount del <tr> para robustez */
+        var amountVal   = parseFloat(row.dataset.amount) || 0;
+
+        var match = (
+            (!search   || merchantVal.includes(search) || detailsVal.includes(search) || idText.includes(search))
+         && (!from     || dateVal >= from)
+         && (!to       || dateVal <= to)
+         && (!category || categoryVal.includes(category))
+         && (!type     || typeVal === type)
+        );
+
+        row.style.display = match ? '' : 'none';
+        if (match) { count++; total += amountVal; }
+    });
+
+    var vc = document.getElementById('visible-count');
+    if (vc) vc.textContent = count;
+    var ft = document.getElementById('filtered-total');
+    if (ft) ft.textContent = '$' + total.toLocaleString('en-US', {minimumFractionDigits: 2});
+}
+
+/* ── Inicializar al cargar ── */
+function initPage() {
+    /* Formatear montos en los inputs */
+    document.querySelectorAll('.amount-input').forEach(function(inp) {
+        var raw = parseFloat(inp.dataset.raw) || 0;
+        if (!inp.value || inp.value.trim() === '') {
+            inp.value = formatCurrency(raw);
+        }
+    });
+    /* Formatear fechas */
+    document.querySelectorAll('.date-hidden').forEach(function(inp) { updateDateDisplay(inp); });
+    /* Calcular total inicial */
+    applyFilters();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPage);
+} else {
+    initPage();
+}
+
+/* ── API helpers ── */
+async function updateExpense(id, field, value) {
+    try {
+        var payload = { id: id }; payload[field] = value;
+        var res = await fetch('/api/update-expense', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        var data = await res.json();
+        if (data.success) {
+            var t = document.getElementById('toast');
+            if (t) {
+                t.querySelector('span').textContent = '✓ Guardado';
+                t.classList.add('show');
+                setTimeout(function(){ t.classList.remove('show'); }, 2000);
+            }
+            return true;
+        }
+    } catch(e) { console.error(e); }
+    return false;
+}
+
+async function confirmExpense(id, btnElem) {
+    if (!confirm('¿Confirmar este gasto?')) return;
+    
+    /* Actualización Optimista Instantánea */
+    var row = btnElem ? btnElem.closest('tr') : document.querySelector('button[onclick*="confirmExpense(' + id + ')"]')?.closest('tr');
+    if (row) {
+        row.classList.remove(
+            'bg-purple-200/80', 'dark:bg-purple-800/50',
+            'shadow-lg', 'shadow-purple-500/30',
+            'border-purple-300', 'dark:border-purple-600', 'z-10'
+        );
+        row.classList.add('border-b', 'border-slate-100', 'dark:border-slate-800/40');
+        if (btnElem) btnElem.remove();
+    }
+    
+    var success = await updateExpense(id, 'status', 'pending');
+    if (!success) {
+        alert('No se pudo confirmar el gasto en el servidor.');
+        location.reload();
+    }
+}
+
+async function deleteExpense(id, btnElem) {
+    if (!confirm('¿Eliminar? Esta acción es irreversible.')) return;
+    
+    var row = btnElem ? btnElem.closest('tr') : document.querySelector('button[onclick*="deleteExpense(' + id + ')"]')?.closest('tr');
+    if (row) {
+        row.style.transition = 'all 0.25s ease';
+        row.style.opacity = '0';
+        row.style.transform = 'scale(0.95)';
+        setTimeout(function() {
+            row.remove();
+            cleanUnusedCategories();
+            applyFilters();
+        }, 250);
+    }
+    
+    try {
+        var res = await fetch('/api/delete-expense', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:id})});
+        var data = await res.json();
+        if (data.success) {
+            var t = document.getElementById('toast');
+            if (t) {
+                t.querySelector('span').textContent = '✓ Eliminado';
+                t.classList.add('show');
+                setTimeout(function(){ t.classList.remove('show'); }, 2000);
+            }
+        } else {
+            alert('Error al eliminar: ' + (data.message || 'Desconocido'));
+            location.reload();
+        }
+    } catch(e) {
+        console.error(e);
+        location.reload();
+    }
+}
+</script>
+</body>
+</html>

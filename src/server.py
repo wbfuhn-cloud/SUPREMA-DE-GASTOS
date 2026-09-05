@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, make_response, send_file, send_from_directory
+from flask import Flask, jsonify, request, make_response, send_file, send_from_directory, render_template
 from flask_cors import CORS  # type: ignore
 import sys
 import os
@@ -433,7 +433,9 @@ def dashboard():
             return _html_response(_empty_page('[WARN] Sin gastos', 'La base de datos está vacía.'))
 
         categories = db_manager.get_categories()
-        html = DashboardGenerator.generate_html(expenses, categories, selected_year=year_int, available_years=available_years)
+        data = DashboardGenerator.generate_html(expenses, categories, selected_year=year_int, available_years=available_years)
+        data['current_time'] = datetime.now().strftime('%d %b %H:%M')
+        html = render_template('dashboard.html', **data)
         _set_cached_view(cache_key, html)
         return _html_response(html)
 
@@ -464,7 +466,8 @@ def transactions_view():
         else:
             expenses = db_manager.get_all_expenses()
 
-        html = TransactionsViewGenerator.generate_html(expenses, selected_year=year, available_years=available_years)
+        data = TransactionsViewGenerator.generate_html(expenses, selected_year=year, available_years=available_years)
+        html = render_template('transactions.html', **data)
         _set_cached_view(cache_key, html)
         return _html_response(html)
 

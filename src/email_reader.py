@@ -25,9 +25,9 @@ try:
     import msal # type: ignore
     import requests as http_requests # type: ignore
 except ImportError as e:
-    print(f"[ERROR] Dependencia faltante: {e}")
-    print("Ejecuta: pip install msal requests")
-    sys.exit(1)
+    logging.error(f"[ERROR] Dependencia faltante en email_reader: {e}. Ejecuta: pip install msal requests")
+    msal = None
+    http_requests = None
 
 from src.database import DatabaseManager # type: ignore
 from src.analyzer import AnalysisService # type: ignore
