@@ -1,0 +1,848 @@
+{
+    "project": {
+        "name": "FINIS CORE",
+        "description": "Sistema completo de gestión financiera con Telegram Bot, Dashboard Web, y Base de Datos SQLite",
+        "version": "3.0",
+        "author": "PLI SYSTEM MX",
+        "technologies": [
+            "Python",
+            "Flask",
+            "SQLite",
+            "Telegram Bot API",
+            "Chart.js",
+            "html2canvas"
+        ]
+    },
+    "architecture": {
+        "overview": "Arquitectura modular con separación de responsabilidades entre bot, servidor web, y gestión de datos",
+        "components": [
+            {
+                "name": "Telegram Bot",
+                "file": "src/bot.py",
+                "description": "Bot de Telegram para captura automática de gastos mediante mensajes y fotos"
+            },
+            {
+                "name": "Web Server",
+                "file": "src/server.py",
+                "description": "Servidor Flask que sirve dashboard y API REST"
+            },
+            {
+                "name": "Database Manager",
+                "file": "src/database.py",
+                "description": "Gestor de base de datos SQLite con operaciones CRUD"
+            },
+            {
+                "name": "Dashboard Generator",
+                "file": "src/dashboard.py",
+                "description": "Generador de HTML para dashboard principal con gráficas"
+            },
+            {
+                "name": "Transactions View",
+                "file": "src/transactions_view.py",
+                "description": "Vista detallada de transacciones con filtros y exportación"
+            },
+            {
+                "name": "Analyzer",
+                "file": "src/analyzer.py",
+                "description": "Analizador de gastos con IA para categorización automática"
+            }
+        ]
+    },
+    "database": {
+        "type": "SQLite",
+        "location": "database/expenses.db",
+        "tables": [
+            {
+                "name": "expenses",
+                "description": "Tabla principal de gastos",
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                        "description": "ID único del gasto"
+                    },
+                    {
+                        "name": "date",
+                        "type": "TEXT",
+                        "description": "Fecha del gasto (YYYY-MM-DD)"
+                    },
+                    {
+                        "name": "day",
+                        "type": "INTEGER",
+                        "description": "Día del mes"
+                    },
+                    {
+                        "name": "month",
+                        "type": "TEXT",
+                        "description": "Nombre del mes"
+                    },
+                    {
+                        "name": "week",
+                        "type": "INTEGER",
+                        "description": "Número de semana"
+                    },
+                    {
+                        "name": "merchant",
+                        "type": "TEXT",
+                        "description": "Comercio o descripción"
+                    },
+                    {
+                        "name": "category",
+                        "type": "TEXT",
+                        "description": "Categoría del gasto"
+                    },
+                    {
+                        "name": "total",
+                        "type": "REAL",
+                        "description": "Monto total"
+                    },
+                    {
+                        "name": "type",
+                        "type": "TEXT",
+                        "description": "Tipo: Normal, Deuda, Prestamo"
+                    },
+                    {
+                        "name": "payment_method",
+                        "type": "TEXT",
+                        "description": "Método de pago"
+                    },
+                    {
+                        "name": "details",
+                        "type": "TEXT",
+                        "description": "Detalles adicionales"
+                    },
+                    {
+                        "name": "status",
+                        "type": "TEXT",
+                        "description": "Estado: Normal, pending, paid"
+                    },
+                    {
+                        "name": "created_at",
+                        "type": "TEXT",
+                        "description": "Timestamp de creación"
+                    }
+                ]
+            },
+            {
+                "name": "categories",
+                "description": "Tabla de categorías personalizadas",
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "INTEGER PRIMARY KEY AUTOINCREMENT"
+                    },
+                    {
+                        "name": "name",
+                        "type": "TEXT UNIQUE",
+                        "description": "Nombre de la categoría"
+                    },
+                    {
+                        "name": "created_at",
+                        "type": "TEXT"
+                    }
+                ]
+            }
+        ]
+    },
+    "modules": {
+        "bot.py": {
+            "description": "Bot de Telegram para captura de gastos",
+            "main_class": "ExpenseBot",
+            "key_functions": [
+                {
+                    "name": "start_command",
+                    "description": "Comando /start - Muestra mensaje de bienvenida y estado del sistema",
+                    "parameters": [],
+                    "returns": "Mensaje de confirmación al usuario"
+                },
+                {
+                    "name": "handle_message",
+                    "description": "Procesa mensajes de texto para extraer gastos automáticamente",
+                    "parameters": [
+                        "message: telegram.Message"
+                    ],
+                    "returns": "Confirmación de gasto registrado con detalles",
+                    "ai_features": [
+                        "Extracción de monto",
+                        "Detección de comercio",
+                        "Categorización automática"
+                    ]
+                },
+                {
+                    "name": "handle_photo",
+                    "description": "Procesa fotos de tickets usando OCR y análisis de IA",
+                    "parameters": [
+                        "photo: telegram.PhotoSize"
+                    ],
+                    "returns": "Gasto extraído del ticket",
+                    "ai_features": [
+                        "OCR con Tesseract",
+                        "Extracción de datos estructurados",
+                        "Categorización inteligente"
+                    ]
+                },
+                {
+                    "name": "categorize_expense",
+                    "description": "Categoriza gastos usando aprendizaje de patrones previos",
+                    "parameters": [
+                        "merchant: str",
+                        "details: str"
+                    ],
+                    "returns": "Categoría sugerida",
+                    "ai_features": [
+                        "Análisis de historial",
+                        "Matching por similitud",
+                        "Sugerencias inteligentes"
+                    ]
+                }
+            ],
+            "commands": [
+                {
+                    "/start": "Inicia el bot y muestra estado del sistema"
+                },
+                {
+                    "/help": "Muestra ayuda y comandos disponibles"
+                },
+                {
+                    "/stats": "Muestra estadísticas del mes actual"
+                },
+                {
+                    "/export": "Genera y envía reporte Excel"
+                }
+            ]
+        },
+        "server.py": {
+            "description": "Servidor Flask con API REST y vistas web",
+            "port": 5050,
+            "host": "0.0.0.0",
+            "routes": [
+                {
+                    "path": "/",
+                    "method": "GET",
+                    "description": "Redirige al dashboard",
+                    "returns": "Redirect a /dashboard"
+                },
+                {
+                    "path": "/dashboard",
+                    "method": "GET",
+                    "description": "Dashboard principal con gráficas y estadísticas",
+                    "returns": "HTML generado por DashboardGenerator"
+                },
+                {
+                    "path": "/transactions",
+                    "method": "GET",
+                    "description": "Vista detallada de transacciones con filtros",
+                    "returns": "HTML generado por TransactionsViewGenerator"
+                },
+                {
+                    "path": "/api/expenses",
+                    "method": "GET",
+                    "description": "Obtiene todos los gastos en formato JSON",
+                    "returns": "JSON con lista de gastos"
+                },
+                {
+                    "path": "/api/add-expense",
+                    "method": "POST",
+                    "description": "Agrega un nuevo gasto",
+                    "body": {
+                        "merchant": "string",
+                        "total": "number",
+                        "date": "string (YYYY-MM-DD)",
+                        "category": "string",
+                        "type": "string",
+                        "details": "string (opcional)"
+                    },
+                    "returns": "JSON con success y message"
+                },
+                {
+                    "path": "/api/update-expense",
+                    "method": "POST",
+                    "description": "Actualiza un gasto existente",
+                    "body": {
+                        "id": "number",
+                        "field": "value"
+                    },
+                    "returns": "JSON con success y message"
+                },
+                {
+                    "path": "/api/delete-expense",
+                    "method": "POST",
+                    "description": "Elimina un gasto permanentemente",
+                    "body": {
+                        "id": "number"
+                    },
+                    "returns": "JSON con success y message"
+                },
+                {
+                    "path": "/api/mark-paid",
+                    "method": "POST",
+                    "description": "Marca un gasto como pagado (total = 0)",
+                    "body": {
+                        "day": "number",
+                        "month": "string",
+                        "merchant": "string",
+                        "total": "number"
+                    },
+                    "returns": "JSON con success y message"
+                },
+                {
+                    "path": "/api/add-category",
+                    "method": "POST",
+                    "description": "Agrega una nueva categoría personalizada",
+                    "body": {
+                        "name": "string"
+                    },
+                    "returns": "JSON con success y message"
+                },
+                {
+                    "path": "/api/export-excel",
+                    "method": "GET",
+                    "description": "Genera y descarga reporte Excel",
+                    "returns": "Archivo .xlsx"
+                },
+                {
+                    "path": "/api/dashboard-updates",
+                    "method": "GET",
+                    "description": "Obtiene datos actualizados del dashboard para live updates",
+                    "returns": "JSON con estadísticas y HTML de secciones"
+                }
+            ]
+        },
+        "database.py": {
+            "description": "Gestor de base de datos SQLite con operaciones CRUD",
+            "main_class": "DatabaseManager",
+            "key_methods": [
+                {
+                    "name": "__init__",
+                    "description": "Inicializa la base de datos y crea tablas si no existen",
+                    "parameters": [
+                        "db_path: str (opcional)"
+                    ],
+                    "creates": [
+                        "expenses table",
+                        "categories table"
+                    ]
+                },
+                {
+                    "name": "add_expense",
+                    "description": "Agrega un nuevo gasto a la base de datos",
+                    "parameters": [
+                        "expense_data: dict"
+                    ],
+                    "returns": "(success: bool, message: str)",
+                    "validations": [
+                        "Campos requeridos",
+                        "Tipos de datos",
+                        "Valores válidos"
+                    ]
+                },
+                {
+                    "name": "get_all_expenses",
+                    "description": "Obtiene todos los gastos, opcionalmente incluyendo pagados",
+                    "parameters": [
+                        "include_paid: bool = False"
+                    ],
+                    "returns": "List[dict] - Lista de gastos",
+                    "filters": [
+                        "Excluye gastos con total=0 por defecto"
+                    ]
+                },
+                {
+                    "name": "update_expense",
+                    "description": "Actualiza campos específicos de un gasto",
+                    "parameters": [
+                        "expense_id: int",
+                        "update_data: dict"
+                    ],
+                    "returns": "(success: bool, message: str)"
+                },
+                {
+                    "name": "delete_expense",
+                    "description": "Elimina permanentemente un gasto",
+                    "parameters": [
+                        "expense_id: int"
+                    ],
+                    "returns": "(success: bool, message: str)"
+                },
+                {
+                    "name": "mark_expense_as_paid",
+                    "description": "Marca un gasto como pagado (total = 0)",
+                    "parameters": [
+                        "expense_id: int"
+                    ],
+                    "returns": "(success: bool, message: str)"
+                },
+                {
+                    "name": "find_expense",
+                    "description": "Busca un gasto por sus atributos",
+                    "parameters": [
+                        "day: int",
+                        "month: str",
+                        "merchant: str",
+                        "total: float"
+                    ],
+                    "returns": "expense_id: int o None"
+                },
+                {
+                    "name": "get_categories",
+                    "description": "Obtiene todas las categorías disponibles",
+                    "returns": "List[str] - Lista de nombres de categorías"
+                },
+                {
+                    "name": "add_category",
+                    "description": "Agrega una nueva categoría personalizada",
+                    "parameters": [
+                        "name: str"
+                    ],
+                    "returns": "(success: bool, message: str)"
+                }
+            ]
+        },
+        "dashboard.py": {
+            "description": "Generador de dashboard HTML con gráficas interactivas",
+            "main_class": "DashboardGenerator",
+            "key_methods": [
+                {
+                    "name": "get_dashboard_data",
+                    "description": "Calcula todas las estadísticas del dashboard",
+                    "parameters": [
+                        "expenses: List[dict]",
+                        "categories: List[str]"
+                    ],
+                    "returns": "dict con estadísticas calculadas",
+                    "calculations": [
+                        "Total de gastos",
+                        "Total de deudas",
+                        "Total de préstamos",
+                        "Promedio diario",
+                        "Proyección fin de mes",
+                        "Gasto máximo",
+                        "Totales por categoría",
+                        "Totales por semana",
+                        "Top 5 comercios",
+                        "Últimas 10 transacciones"
+                    ]
+                },
+                {
+                    "name": "generate_html",
+                    "description": "Genera el HTML completo del dashboard",
+                    "parameters": [
+                        "expenses: List[dict]",
+                        "categories: List[str]"
+                    ],
+                    "returns": "str - HTML completo",
+                    "features": [
+                        "Tema claro/oscuro",
+                        "Gráficas con Chart.js",
+                        "Estadísticas en tiempo real",
+                        "Formulario de nuevo gasto",
+                        "Últimas transacciones",
+                        "Modales de deudas y préstamos",
+                        "Responsive design para móvil"
+                    ]
+                },
+                {
+                    "name": "_generate_table_rows",
+                    "description": "Genera filas HTML para tablas de transacciones",
+                    "parameters": [
+                        "items: List[dict]"
+                    ],
+                    "returns": "str - HTML de filas",
+                    "includes": [
+                        "Botones de marcar como pagado",
+                        "Badges de categoría y tipo",
+                        "Total row"
+                    ]
+                }
+            ],
+            "charts": [
+                {
+                    "name": "categoryChart",
+                    "type": "bar",
+                    "description": "Gráfica de barras por categoría",
+                    "data": "Totales por categoría ordenados descendente"
+                },
+                {
+                    "name": "weekChart",
+                    "type": "doughnut",
+                    "description": "Gráfica de dona por semana",
+                    "data": "Totales por semana del mes"
+                }
+            ]
+        },
+        "transactions_view.py": {
+            "description": "Vista detallada de transacciones con filtros avanzados y exportación",
+            "main_class": "TransactionsViewGenerator",
+            "key_methods": [
+                {
+                    "name": "generate_html",
+                    "description": "Genera HTML de vista de transacciones",
+                    "parameters": [
+                        "expenses: List[dict]"
+                    ],
+                    "returns": "str - HTML completo",
+                    "features": [
+                        "Tabla editable inline",
+                        "Filtros múltiples (búsqueda, fecha, categoría, tipo)",
+                        "Total filtrado en tiempo real",
+                        "Exportación a Excel",
+                        "Exportación a imagen PNG",
+                        "Tema claro/oscuro",
+                        "Eliminación de transacciones"
+                    ]
+                }
+            ],
+            "filters": [
+                {
+                    "name": "Búsqueda",
+                    "description": "Busca en comercio y detalles",
+                    "type": "text"
+                },
+                {
+                    "name": "Rango de fechas",
+                    "description": "Filtra por fecha desde/hasta",
+                    "type": "date range"
+                },
+                {
+                    "name": "Categoría",
+                    "description": "Filtra por categoría específica",
+                    "type": "select"
+                },
+                {
+                    "name": "Tipo",
+                    "description": "Filtra por Normal/Deuda/Préstamo",
+                    "type": "select"
+                }
+            ],
+            "export_features": [
+                {
+                    "name": "Exportar a Excel",
+                    "description": "Descarga todas las transacciones en formato .xlsx",
+                    "endpoint": "/api/export-excel"
+                },
+                {
+                    "name": "Exportar a Imagen",
+                    "description": "Captura transacciones filtradas como PNG",
+                    "library": "html2canvas",
+                    "includes": [
+                        "Filtros aplicados",
+                        "Total y conteo",
+                        "Tabla de transacciones",
+                        "Timestamp"
+                    ]
+                }
+            ]
+        },
+        "analyzer.py": {
+            "description": "Analizador de gastos con IA para categorización automática",
+            "main_class": "ExpenseAnalyzer",
+            "key_methods": [
+                {
+                    "name": "categorize_smart",
+                    "description": "Categoriza gastos usando historial y patrones",
+                    "parameters": [
+                        "merchant: str",
+                        "details: str",
+                        "db_manager: DatabaseManager"
+                    ],
+                    "returns": "str - Categoría sugerida",
+                    "algorithm": [
+                        "1. Busca coincidencias exactas en historial",
+                        "2. Busca coincidencias parciales por similitud",
+                        "3. Analiza palabras clave en merchant y details",
+                        "4. Retorna categoría más frecuente o 'OTRO'"
+                    ]
+                },
+                {
+                    "name": "extract_expense_from_text",
+                    "description": "Extrae datos de gasto desde texto libre",
+                    "parameters": [
+                        "text: str"
+                    ],
+                    "returns": "dict con merchant, total, category",
+                    "patterns": [
+                        "Detección de montos ($XXX, XXX pesos)",
+                        "Extracción de comercio",
+                        "Categorización automática"
+                    ]
+                },
+                {
+                    "name": "analyze_ticket_image",
+                    "description": "Analiza imagen de ticket con OCR",
+                    "parameters": [
+                        "image_path: str"
+                    ],
+                    "returns": "dict con datos extraídos",
+                    "steps": [
+                        "1. Preprocesamiento de imagen (escala de grises, threshold)",
+                        "2. OCR con Tesseract",
+                        "3. Extracción de total, comercio, fecha",
+                        "4. Categorización automática"
+                    ]
+                }
+            ]
+        },
+        "excel_export.py": {
+            "description": "Exportador de gastos a formato Excel",
+            "main_class": "ExcelExporter",
+            "key_methods": [
+                {
+                    "name": "export_from_database",
+                    "description": "Exporta todos los gastos de la BD a Excel",
+                    "parameters": [
+                        "db_manager: DatabaseManager",
+                        "output_path: str"
+                    ],
+                    "returns": "(success: bool, path: str)",
+                    "features": [
+                        "Formato profesional con estilos",
+                        "Columnas ajustadas automáticamente",
+                        "Headers con formato",
+                        "Filtros automáticos"
+                    ]
+                }
+            ]
+        },
+        "notifications.py": {
+            "description": "Sistema de notificaciones por Telegram",
+            "key_functions": [
+                {
+                    "name": "send_telegram_notification",
+                    "description": "Envía notificación a usuario de Telegram",
+                    "parameters": [
+                        "chat_id: int",
+                        "message: str",
+                        "bot_token: str"
+                    ],
+                    "returns": "bool - Éxito del envío"
+                },
+                {
+                    "name": "send_daily_summary",
+                    "description": "Envía resumen diario de gastos",
+                    "parameters": [
+                        "chat_id: int",
+                        "db_manager: DatabaseManager"
+                    ],
+                    "includes": [
+                        "Total del día",
+                        "Categorías principales",
+                        "Comparación con promedio"
+                    ]
+                }
+            ]
+        },
+        "config.py": {
+            "description": "Configuración centralizada del sistema",
+            "variables": [
+                {
+                    "TELEGRAM_BOT_TOKEN": "Token del bot de Telegram"
+                },
+                {
+                    "TELEGRAM_CHAT_ID": "ID del chat para notificaciones"
+                },
+                {
+                    "DATABASE_PATH": "Ruta de la base de datos SQLite"
+                },
+                {
+                    "SERVER_PORT": "Puerto del servidor Flask (5050)"
+                },
+                {
+                    "DEFAULT_CATEGORIES": "Lista de categorías predeterminadas"
+                }
+            ]
+        }
+    },
+    "workflows": {
+        "agregar_gasto_manual": {
+            "description": "Agregar gasto manualmente desde el dashboard",
+            "steps": [
+                "1. Usuario accede a /dashboard",
+                "2. Llena formulario 'Agregar Nuevo Gasto'",
+                "3. JavaScript envía POST a /api/add-expense",
+                "4. DatabaseManager.add_expense() guarda en BD",
+                "5. Dashboard se actualiza automáticamente (live updates cada 5s)"
+            ]
+        },
+        "agregar_gasto_telegram": {
+            "description": "Agregar gasto por mensaje de Telegram",
+            "steps": [
+                "1. Usuario envía mensaje al bot (ej: 'Uber $150')",
+                "2. Bot.handle_message() procesa el texto",
+                "3. ExpenseAnalyzer.extract_expense_from_text() extrae datos",
+                "4. ExpenseAnalyzer.categorize_smart() sugiere categoría",
+                "5. DatabaseManager.add_expense() guarda en BD",
+                "6. Bot envía confirmación al usuario"
+            ]
+        },
+        "agregar_gasto_foto": {
+            "description": "Agregar gasto desde foto de ticket",
+            "steps": [
+                "1. Usuario envía foto al bot de Telegram",
+                "2. Bot.handle_photo() descarga la imagen",
+                "3. ExpenseAnalyzer.analyze_ticket_image() procesa con OCR",
+                "4. Extrae total, comercio, fecha del ticket",
+                "5. Categoriza automáticamente",
+                "6. DatabaseManager.add_expense() guarda en BD",
+                "7. Bot envía confirmación con datos extraídos"
+            ]
+        },
+        "filtrar_y_exportar": {
+            "description": "Filtrar transacciones y exportar como imagen",
+            "steps": [
+                "1. Usuario accede a /transactions",
+                "2. Aplica filtros (búsqueda, fechas, categoría, tipo)",
+                "3. JavaScript actualiza tabla y calcula total filtrado",
+                "4. Usuario hace clic en 'Exportar Imagen'",
+                "5. JavaScript crea contenedor temporal con datos filtrados",
+                "6. html2canvas captura el contenedor como imagen",
+                "7. Descarga PNG con timestamp"
+            ]
+        },
+        "editar_transaccion": {
+            "description": "Editar transacción desde vista de transacciones",
+            "steps": [
+                "1. Usuario accede a /transactions",
+                "2. Modifica campo inline (input o select)",
+                "3. onChange dispara updateExpense()",
+                "4. JavaScript envía POST a /api/update-expense",
+                "5. DatabaseManager.update_expense() actualiza BD",
+                "6. Toast de confirmación se muestra"
+            ]
+        },
+        "marcar_como_pagado": {
+            "description": "Marcar deuda/préstamo como pagado",
+            "steps": [
+                "1. Usuario hace clic en botón ✓ en dashboard o transacciones",
+                "2. Confirma acción en diálogo",
+                "3. JavaScript envía POST a /api/mark-paid",
+                "4. DatabaseManager.mark_expense_as_paid() pone total=0",
+                "5. Fila se actualiza visualmente",
+                "6. Dashboard se recarga para reflejar cambios"
+            ]
+        }
+    },
+    "features": {
+        "dashboard": [
+            "Estadísticas en tiempo real (total, promedio, proyección)",
+            "Gráficas interactivas (categorías, semanas)",
+            "Top 5 comercios con barras de progreso",
+            "Últimas 10 transacciones",
+            "Formulario de nuevo gasto inline",
+            "Modales de deudas y préstamos",
+            "Tema claro/oscuro persistente",
+            "Live updates cada 5 segundos",
+            "Responsive design para móvil"
+        ],
+        "transactions": [
+            "Tabla editable inline",
+            "Filtros múltiples en tiempo real",
+            "Total filtrado dinámico",
+            "Exportación a Excel",
+            "Exportación a imagen PNG",
+            "Eliminación con confirmación",
+            "Tema claro/oscuro",
+            "Textarea expandible para detalles"
+        ],
+        "telegram_bot": [
+            "Captura de gastos por texto",
+            "Captura de gastos por foto (OCR)",
+            "Categorización automática inteligente",
+            "Comandos de estadísticas",
+            "Exportación de reportes",
+            "Notificaciones automáticas"
+        ],
+        "ai_features": [
+            "Categorización inteligente basada en historial",
+            "OCR de tickets con Tesseract",
+            "Extracción de datos estructurados de texto libre",
+            "Sugerencias de categoría por similitud",
+            "Aprendizaje de patrones de gasto"
+        ]
+    },
+    "deployment": {
+        "requirements": [
+            "Python 3.8+",
+            "Flask",
+            "python-telegram-bot",
+            "openpyxl",
+            "Pillow",
+            "pytesseract",
+            "SQLite3"
+        ],
+        "installation": [
+            "1. Instalar dependencias: pip install -r requirements.txt",
+            "2. Configurar .env con TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID",
+            "3. Ejecutar install.bat (Windows) o equivalente",
+            "4. Iniciar con start.bat o python main.py"
+        ],
+        "startup": {
+            "main_file": "main.py",
+            "description": "Inicia bot de Telegram y servidor Flask en paralelo",
+            "ports": [
+                "5050 (Flask server)"
+            ],
+            "services": [
+                "Telegram Bot",
+                "Flask Web Server",
+                "SQLite Database"
+            ]
+        }
+    },
+    "file_structure": {
+        "root": {
+            "main.py": "Punto de entrada principal",
+            "gui.py": "Interfaz gráfica opcional",
+            "requirements.txt": "Dependencias Python",
+            ".env": "Variables de entorno (tokens, configuración)",
+            "README.md": "Documentación del proyecto"
+        },
+        "src/": {
+            "bot.py": "Bot de Telegram",
+            "server.py": "Servidor Flask",
+            "database.py": "Gestor de base de datos",
+            "dashboard.py": "Generador de dashboard",
+            "transactions_view.py": "Vista de transacciones",
+            "analyzer.py": "Analizador de gastos con IA",
+            "excel_export.py": "Exportador a Excel",
+            "notifications.py": "Sistema de notificaciones",
+            "config.py": "Configuración centralizada",
+            "tunnel.py": "Túnel ngrok para acceso remoto",
+            "verify_*.py": "Scripts de verificación y testing"
+        },
+        "database/": {
+            "expenses.db": "Base de datos SQLite principal"
+        },
+        "tests/": {
+            "description": "Tests unitarios y de integración"
+        },
+        "tools/": {
+            "description": "Herramientas auxiliares y scripts"
+        }
+    },
+    "api_endpoints_summary": {
+        "GET": [
+            "/dashboard - Dashboard principal",
+            "/transactions - Vista de transacciones",
+            "/api/expenses - Lista de gastos JSON",
+            "/api/export-excel - Descarga Excel",
+            "/api/dashboard-updates - Datos para live updates"
+        ],
+        "POST": [
+            "/api/add-expense - Agregar gasto",
+            "/api/update-expense - Actualizar gasto",
+            "/api/delete-expense - Eliminar gasto",
+            "/api/mark-paid - Marcar como pagado",
+            "/api/add-category - Agregar categoría"
+        ]
+    },
+    "future_enhancements": [
+        "Autenticación de usuarios",
+        "Multi-usuario con roles",
+        "Presupuestos y alertas",
+        "Reportes avanzados con gráficas adicionales",
+        "Integración con bancos (API)",
+        "App móvil nativa",
+        "Sincronización en la nube",
+        "Machine learning para predicción de gastos"
+    ]
+}

@@ -1,0 +1,8 @@
+[OK] Encoding
+[OK] Constantes
+[OK] Config
+[OK] DB: 200 expenses
+[OK] Paginacion: 200
+[OK] Telegram utils
+[OK] Server TTL=30s
+=== OK ===

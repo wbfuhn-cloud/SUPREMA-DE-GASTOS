@@ -1,0 +1,43 @@
+{
+    "filters": {
+        "min_rsi": 0,
+        "max_rsi": 100,
+        "min_beta": 0.8,
+        "max_beta": 1.5,
+        "min_margin": 0.25,
+        "viability_filter": "TODAS"
+    },
+    "display": {
+        "theme": "Dark",
+        "visible_columns": [
+            "ticker",
+            "price",
+            "viabilidad",
+            "rsi",
+            "ma100",
+            "ma200",
+            "macd",
+            "beta",
+            "nota"
+        ]
+    },
+    "watchlist": [],
+    "risk_management": {
+        "capital": 10000.0,
+        "risk_pct": 0.2,
+        "atr_multiplier": 2.0
+    },
+    "last_scan": null,
+    "scan_history": [],
+    "portfolio": [
+        "TSLA"
+    ],
+    "live_alerts": {
+        "enabled": true,
+        "interval_minutes": 5,
+        "min_confidence": 40.0,
+        "trump_stocks": ["DJT", "PHUN", "RUM"],
+        "alert_on_buy": true,
+        "alert_on_sell": true
+    }
+}

@@ -1,0 +1,37 @@
+{
+    "filters": {
+        "min_rsi": 0,
+        "max_rsi": 100,
+        "min_beta": 0.8,
+        "max_beta": 1.5,
+        "min_margin": 0.25,
+        "viability_filter": "TODAS"
+    },
+    "display": {
+        "theme": "Dark",
+        "visible_columns": [
+            "ticker",
+            "price",
+            "viabilidad",
+            "rsi",
+            "ma100",
+            "ma200",
+            "macd",
+            "beta",
+            "nota"
+        ]
+    },
+    "watchlist": [],
+    "risk_management": {
+        "capital": 10000.0,
+        "risk_pct": 0.02,
+        "atr_multiplier": 2.0
+    },
+    "last_scan": null,
+    "scan_history": [],
+    "portfolio": [
+        "Tza",
+        "TEM",
+        "OSCR"
+    ]
+}

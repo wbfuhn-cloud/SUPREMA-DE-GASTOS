@@ -1,0 +1,30 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "asistente-financiero",
+	"main": "src/index.js",
+  "compatibility_date": "2026-08-22",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "assets": {
+    "directory": "./web"
+  },
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "gastos",
+      "database_id": "d7f8d98a-0f9c-46cc-9230-8cffb491e530",
+			"migrations_dir": "migrations"
+		},
+		{
+			"binding": "Gastos_v2",
+			"database_name": "gastos",
+			"database_id": "d7f8d98a-0f9c-46cc-9230-8cffb491e530",
+			"remote": true
+		}
+	],
+	"vars": {
+		"APP_ENV": "development"
+	}
+}

@@ -1,0 +1,74 @@
+{
+    "filters": {
+        "min_rsi": 0,
+        "max_rsi": 100,
+        "min_beta": 0.8,
+        "max_beta": 1.5,
+        "min_margin": 0.25,
+        "viability_filter": "TODAS"
+    },
+    "display": {
+        "theme": "Dark",
+        "visible_columns": [
+            "ticker",
+            "price",
+            "viabilidad",
+            "rsi",
+            "ma100",
+            "ma200",
+            "macd",
+            "beta",
+            "nota"
+        ]
+    },
+    "watchlist": [],
+    "portfolio": {
+        "TEM": {
+            "qty": 1.0,
+            "avg_price": 52.0,
+            "updated_at": "2026-05-19T23:40:44.454339"
+        },
+        "SOXS": {
+            "qty": 1.0,
+            "avg_price": 9.0,
+            "updated_at": "2026-05-27T08:48:46.023601"
+        },
+        "ARM": {
+            "qty": 1.0,
+            "avg_price": 223.15,
+            "updated_at": "2026-05-20T11:38:42.633789"
+        },
+        "APA": {
+            "qty": 1.0,
+            "avg_price": 40.0,
+            "updated_at": "2026-05-20T11:40:06.721091"
+        },
+        "TER": {
+            "qty": 1.0,
+            "avg_price": 153.0,
+            "updated_at": "2026-05-26T13:41:04.353218"
+        },
+        "ON": {
+            "qty": 1.0,
+            "avg_price": 11.0,
+            "updated_at": "2026-05-27T08:43:54.462162"
+        },
+        "AMAT": {
+            "qty": 1.0,
+            "avg_price": 445.0,
+            "updated_at": "2026-05-27T08:57:41.647478"
+        },
+        "TSLA": {
+            "qty": 1.0,
+            "avg_price": 441.74,
+            "updated_at": "2026-05-27T08:58:15.240174"
+        }
+    },
+    "risk_management": {
+        "capital": 10000.0,
+        "risk_pct": 0.02,
+        "atr_multiplier": 2.0
+    },
+    "last_scan": null,
+    "scan_history": []
+}

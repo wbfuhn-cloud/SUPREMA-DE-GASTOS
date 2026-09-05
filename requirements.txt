@@ -1,0 +1,13 @@
+python-telegram-bot==22.5
+google-genai
+openpyxl
+python-dotenv
+requests
+customtkinter
+flask
+flask-cors
+apscheduler
+beautifulsoup4
+msal
+httpx
+pandas

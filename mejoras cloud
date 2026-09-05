@@ -1,0 +1,732 @@
+# 🏗️ Plan Maestro — Optimización y Rediseño "Financial Clarity"
+
+**Asistente Financiero · Cloudflare Workers + D1**
+**Producción:** [`https://asistente-financiero.wbfuhn1.workers.dev`](https://asistente-financiero.wbfuhn1.workers.dev/#registrar)
+
+---
+
+## Contexto
+
+La aplicación web corre en Cloudflare Workers con base de datos D1 y actualmente tiene **861+ registros**. El usuario reporta que la carga del historial de transacciones es lenta. Al inspeccionar la arquitectura se identifican **8 cuellos de botella** que empeorarán conforme crezcan los datos.
+
+Se decide aplicar un **rediseño visual completo** basado en el sistema de diseño "Financial Clarity" documentado en [`MONITORBAZ_DIGITAL_BLUEPRINT.md`](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/docs/MONITORBAZ_DIGITAL_BLUEPRINT.md), con paginación de **50 filas** por carga.
+
+### Arquitectura actual vs. propuesta
+
+```mermaid
+graph TB
+    subgraph "❌ HOY — Todo de golpe"
+        A1["Navegador"] -->|"1 GET grande"| B1["Worker"]
+        B1 -->|"SELECT * LIMIT 2000"| C1["D1"]
+        C1 -->|"861 filas JSON (~400KB)"| B1
+        B1 --> A1
+        A1 -->|"JS calcula totales, categorías, deudas"| D1["DOM: 9,500 nodos"]
+    end
+
+    subgraph "✅ PROPUESTO — Inteligente y paralelo"
+        A2["Navegador"] -->|"3 GETs paralelos"| B2["Worker"]
+        B2 -->|"SUM/COUNT/AVG"| C2["D1 · /api/summary"]
+        B2 -->|"TOP 8 categorías"| C3["D1 · /api/categories"]
+        B2 -->|"50 filas paginadas"| C4["D1 · /api/expenses"]
+        C2 & C3 & C4 --> B2
+        B2 -->|"~15KB total"| A2
+        A2 -->|"Render inmediato"| D2["DOM: 550 nodos + Cargar más"]
+    end
+```
+
+### Diagnóstico detallado
+
+| # | Cuello de botella | Archivo | Severidad |
+|---|---|---|---|
+| 1 | **Cero paginación** — descarga hasta 2000 filas de golpe | [index.js:44](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/src/index.js#L44) | 🔴 Crítico |
+| 2 | **861+ nodos DOM** creados de golpe — cada fila genera 11 celdas + listeners | [index.html:60](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html#L60) | 🔴 Crítico |
+| 3 | **Cálculos de dashboard en JS** — totales, promedios, categorías, deudas se computan en el navegador | [index.html:54-59](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html#L54-L59) | 🟡 Alto |
+| 4 | **Sin caché** — cada "Conectar" o cambio de filtro descarga todo de nuevo | [index.html:51](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html#L51) | 🟡 Medio |
+| 5 | **Tabla fija 1905px** — scroll horizontal obligatorio en toda pantalla | [index.html:15](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html#L15) | 🟡 Medio |
+| 6 | **Sin feedback visual** — no hay skeleton loading ni indicadores de progreso | [index.html:39](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html#L39) | 🟡 Medio |
+| 7 | **Diseño genérico** — fuente del sistema, sin glassmorphism, sin animaciones | [index.html:9](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html#L9) | 🟡 Medio |
+| 8 | **Sin índices compuestos** — filtros de deudas/préstamos hacen full-scan | [0001_initial.sql:18-20](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/migrations/0001_initial.sql#L18-L20) | 🟢 Bajo (hoy) |
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Rediseño visual confirmado.** Se aplicará el sistema "Financial Clarity" con glassmorphism, tipografía Inter, paleta `#5631E8` / `#020617`, micro-animaciones y tabla responsiva. El diseño actual se reemplaza completamente.
+
+> [!WARNING]
+> **Cambio en el flujo de datos.** El historial dejará de cargar todas las filas de golpe. Cargará **50 filas** con botón "Cargar más". El dashboard seguirá mostrando totales globales correctos porque vendrán de SQL directo (instantáneo), no del navegador.
+
+> [!WARNING]
+> **La tabla de 1905px desaparece.** En escritorio se verán columnas inteligentes (~1000px fluido). En móvil, cada fila se convierte en una tarjeta con grid CSS. Las columnas secundarias (detalles, subcategoría, proyecto) se muestran al expandir la fila.
+
+---
+
+## Proposed Changes
+
+### Fase 1 — Paginación y Agregación SQL en el Servidor
+
+> **Meta:** Reducir el payload de ~400KB a ~15KB y eliminar cálculos pesados del navegador.
+
+---
+
+#### [MODIFY] [index.js](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/src/index.js)
+
+**1. Paginación en `GET /api/expenses`:**
+```diff
+- const query = env.DB.prepare("SELECT * FROM expenses ORDER BY date DESC, id DESC LIMIT 2000");
++ const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
++ const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
++ // Contar total para saber si hay más
++ const countQ = year
++   ? env.DB.prepare("SELECT COUNT(*) AS c FROM expenses WHERE date LIKE ?").bind(`${year}-%`)
++   : env.DB.prepare("SELECT COUNT(*) AS c FROM expenses");
++ const { c: totalCount } = await countQ.first();
++ const query = year
++   ? env.DB.prepare("SELECT * FROM expenses WHERE date LIKE ? ORDER BY date DESC, id DESC LIMIT ? OFFSET ?").bind(`${year}-%`, limit, offset)
++   : env.DB.prepare("SELECT * FROM expenses ORDER BY date DESC, id DESC LIMIT ? OFFSET ?").bind(limit, offset);
++ const { results } = await query.all();
++ return json({ expenses: results, total_count: totalCount, has_more: offset + limit < totalCount });
+```
+
+**2. Nuevo `GET /api/summary` (reemplaza el actual):**
+```js
+// Todo calculado en D1 con SQL puro — cero cómputo en el navegador
+const yearFilter = year ? ` WHERE date LIKE '${year}-%'` : '';
+const [general, monthly, debts, loans, unconfirmed] = await Promise.all([
+  env.DB.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(total),0) AS total FROM expenses${yearFilter}`).first(),
+  env.DB.prepare(`SELECT COALESCE(SUM(total),0) AS total FROM expenses WHERE date LIKE ?`).bind(`${now.slice(0,7)}-%`).first(),
+  env.DB.prepare(`SELECT COALESCE(SUM(total),0) AS total FROM expenses WHERE type='Deuda' AND status='pending'${yearFilter ? ' AND' + yearFilter.slice(6) : ''}`).first(),
+  env.DB.prepare(`SELECT COALESCE(SUM(total),0) AS total FROM expenses WHERE type='Prestamo' AND status='pending'${yearFilter ? ' AND' + yearFilter.slice(6) : ''}`).first(),
+  env.DB.prepare(`SELECT COUNT(*) AS count FROM expenses WHERE status='unconfirmed'${yearFilter ? ' AND' + yearFilter.slice(6) : ''}`).first(),
+]);
+return json({
+  summary: {
+    count: general.count, total: general.total,
+    monthly_total: monthly.total, daily_avg: monthly.total / Math.max(new Date().getDate(), 1),
+    debt_pending: debts.total, loan_pending: loans.total,
+    unconfirmed_count: unconfirmed.count
+  }
+});
+```
+
+**3. Nuevo `GET /api/categories`:**
+```js
+const { results } = await env.DB.prepare(
+  `SELECT category AS name, SUM(total) AS total FROM expenses${yearFilter} GROUP BY category ORDER BY total DESC LIMIT 8`
+).all();
+return json({ categories: results });
+```
+
+**4. Nuevo `GET /api/pending`:**
+```js
+const { results } = await env.DB.prepare(
+  `SELECT id, date, merchant, total FROM expenses WHERE status='unconfirmed' ORDER BY date DESC LIMIT 10`
+).all();
+return json({ pending: results });
+```
+
+---
+
+#### [NEW] [0003_performance_indexes.sql](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/migrations/0003_performance_indexes.sql)
+
+```sql
+-- Paginación eficiente
+CREATE INDEX IF NOT EXISTS idx_expenses_date_id ON expenses(date DESC, id DESC);
+
+-- Filtro de deudas/préstamos pendientes
+CREATE INDEX IF NOT EXISTS idx_expenses_type_status ON expenses(type, status);
+
+-- Agregación por categoría
+CREATE INDEX IF NOT EXISTS idx_expenses_category_total ON expenses(category, total);
+```
+
+---
+
+### Fase 2 — Rediseño Visual "Financial Clarity"
+
+> **Meta:** Transformar la interfaz en una experiencia premium con glassmorphism, tipografía Inter y paleta curada.
+
+---
+
+#### [MODIFY] [index.html](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html) — CSS completo reescrito
+
+**1. Sistema de diseño — Variables raíz:**
+```css
+:root {
+  /* Paleta Financial Clarity */
+  --bg-master:     #020617;
+  --bg-gradient:   radial-gradient(ellipse at 70% -10%, #1e1b4b 0%, #020617 55%);
+  --glass-bg:      rgba(15, 23, 42, 0.65);
+  --glass-border:  rgba(255, 255, 255, 0.07);
+  --glass-blur:    12px;
+  --glass-shadow:  0 8px 32px rgba(0, 0, 0, 0.35);
+
+  /* Colores de acento */
+  --primary:       #5631E8;
+  --primary-glow:  rgba(86, 49, 232, 0.25);
+  --green:         #34D399;
+  --orange:        #FBBF24;
+  --red:           #F87171;
+  --blue:          #60A5FA;
+
+  /* Texto */
+  --text:          #F8FAFC;
+  --muted:         #94A3B8;
+  --line:          rgba(148, 163, 184, 0.12);
+
+  /* Tipografía */
+  --font:          'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Bordes */
+  --radius-sm:     0.75rem;
+  --radius-md:     1.25rem;
+  --radius-lg:     1.5rem;
+}
+```
+
+**2. Tipografía Inter + numeric alignment:**
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+```
+```css
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+.value, td:nth-child(10), .amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+```
+
+**3. Glassmorphism cards:**
+```css
+.card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--glass-shadow);
+  padding: 1.5rem;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.25s ease;
+}
+.card:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--primary-glow);
+}
+```
+
+**4. Header premium con blur:**
+```css
+header {
+  background: rgba(2, 6, 23, 0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--glass-border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+```
+
+**5. Navegación con indicador animado:**
+```css
+nav a {
+  color: var(--muted);
+  font-weight: 500;
+  padding-bottom: 10px;
+  position: relative;
+  transition: color 0.2s;
+}
+nav a.active {
+  color: var(--text);
+}
+nav a.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary), #a78bfa);
+  border-radius: 2px;
+  animation: slideIn 0.3s ease;
+}
+@keyframes slideIn {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+```
+
+**6. Barras de categoría con gradiente animado:**
+```css
+.fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), #a78bfa);
+  border-radius: 8px;
+  animation: growBar 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform-origin: left;
+}
+@keyframes growBar {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+```
+
+**7. Formulario con inputs glassmorphism:**
+```css
+input, select, textarea {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 0.75rem 1rem;
+  font-family: var(--font);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+```
+
+**8. Botón primario con glow:**
+```css
+button {
+  background: linear-gradient(135deg, var(--primary), #7c3aed);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s, filter 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--primary-glow);
+  filter: brightness(1.1);
+}
+button:active {
+  transform: translateY(0) scale(0.98);
+}
+```
+
+---
+
+### Fase 3 — Tabla Responsiva + Skeleton Loading
+
+> **Meta:** Eliminar la tabla de 1905px, crear cards móviles y añadir feedback visual instantáneo.
+
+---
+
+#### [MODIFY] [index.html](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html) — Tabla + Skeletons
+
+**1. Escritorio: Tabla fluida con columnas inteligentes**
+
+| Columna visible | Ancho | Notas |
+|---|---|---|
+| Fecha (formato `23 Ago 26`) | 100px | Compacto |
+| Comercio | flex | Columna principal |
+| Categoría | 130px | Badge con color |
+| Clasificación | 110px | Badge: Normal / Deuda / Préstamo |
+| Estado | 100px | Badge: Pendiente / Pagado |
+| Monto | 120px | Sticky right, destacado, `tabular-nums` |
+| Acción | 80px | Sticky right, botón "Editar" |
+
+- **Expandir fila:** Click en la fila abre un panel debajo con `Detalles`, `Subcategoría`, `Proyecto`, `Método de pago`, `ID`.
+- **Ancho total:** `100%` del contenedor, sin scroll horizontal.
+
+```css
+table { width: 100%; table-layout: auto; border-collapse: separate; border-spacing: 0; }
+th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+     padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); }
+td { padding: 0.875rem 1rem; border-bottom: 1px solid var(--line);
+     transition: background 0.15s; }
+tr:hover td { background: rgba(86, 49, 232, 0.06); }
+```
+
+**2. Móvil: Tarjetas con grid:**
+```css
+@media (max-width: 768px) {
+  table thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+
+  #expenses tr {
+    display: grid;
+    grid-template-areas:
+      "date     amount"
+      "merchant merchant"
+      "category action";
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem;
+    padding: 1.25rem;
+    margin-bottom: 0.75rem;
+    background: var(--glass-bg);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  }
+}
+```
+
+**3. Skeleton loading (carga percibida):**
+```css
+.skeleton {
+  background: linear-gradient(90deg,
+    rgba(148, 163, 184, 0.08) 25%,
+    rgba(148, 163, 184, 0.15) 50%,
+    rgba(148, 163, 184, 0.08) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+```
+
+```js
+// Antes de cargar datos, inyectar skeletons:
+function showSkeletons() {
+  // Cards del dashboard: rectángulos pulsantes
+  ['total','count','monthly','daily','debt','loan'].forEach(id => {
+    $(id).innerHTML = '<div class="skeleton" style="height:42px;width:60%"></div>';
+  });
+  // Tabla: 5 filas fantasma
+  const tbody = $('expenses');
+  tbody.innerHTML = Array(5).fill(
+    '<tr>' + Array(7).fill('<td><div class="skeleton" style="height:18px;width:80%"></div></td>').join('') + '</tr>'
+  ).join('');
+}
+```
+
+**4. Filas con fade-in escalonado:**
+```css
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+#expenses tr {
+  animation: fadeInUp 0.3s ease forwards;
+  opacity: 0;
+}
+/* JS asigna animation-delay: i * 0.03s a cada fila */
+```
+
+**5. Botón "Cargar más" al final de la tabla:**
+```html
+<button id="load-more" class="full" hidden>
+  Cargar más transacciones
+  <span id="load-more-count" class="muted"></span>
+</button>
+```
+```js
+let currentOffset = 0;
+async function loadMore() {
+  currentOffset += 50;
+  const res = await fetch(`/api/expenses?limit=50&offset=${currentOffset}&year=${period}`, { headers: headers() });
+  const { expenses, has_more } = await res.json();
+  expenses.forEach((e, i) => {
+    const tr = createRow(e);
+    tr.style.animationDelay = `${i * 0.03}s`;
+    $('expenses').append(tr);
+  });
+  if (!has_more) $('load-more').hidden = true;
+}
+```
+
+---
+
+### Fase 4 — Caché, ETags e Índices de Rendimiento
+
+> **Meta:** Reducir latencia y consumo de lecturas D1.
+
+---
+
+#### [MODIFY] [index.js](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/src/index.js)
+
+**1. Cache-Control en respuestas GET:**
+```js
+function json(data, status = 200, cacheSeconds = 0) {
+  const h = { ...JSON_HEADERS };
+  if (cacheSeconds > 0) h["Cache-Control"] = `public, max-age=${cacheSeconds}`;
+  return new Response(JSON.stringify(data), { status, headers: h });
+}
+
+// Uso:
+return json({ summary }, 200, 60);      // summary → cacheable 60s
+return json({ categories }, 200, 60);   // categories → cacheable 60s
+return json({ expenses, ... }, 200, 30); // expenses → cacheable 30s
+```
+
+**2. ETag basado en última actualización:**
+```js
+// En cada GET, calcular ETag:
+const { ts } = await env.DB.prepare("SELECT MAX(updated_at) AS ts FROM expenses").first();
+const etag = `"${btoa(ts || '')}"`;
+
+// Si el navegador ya tiene la versión actual → 304 sin body
+const clientEtag = request.headers.get("If-None-Match");
+if (clientEtag === etag) return new Response(null, { status: 304 });
+
+// Si no, enviar con el ETag para la próxima vez
+return new Response(JSON.stringify(data), {
+  headers: { ...JSON_HEADERS, "ETag": etag, "Cache-Control": "public, max-age=30" }
+});
+```
+
+**3. CORS headers correctos** (para que el caché no interfiera):
+```js
+if (request.method === "OPTIONS") {
+  return new Response(null, {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Max-Age": "86400",
+    }
+  });
+}
+```
+
+---
+
+#### [NEW] [0003_performance_indexes.sql](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/migrations/0003_performance_indexes.sql)
+
+```sql
+-- Paginación eficiente por fecha+id
+CREATE INDEX IF NOT EXISTS idx_expenses_date_id
+  ON expenses(date DESC, id DESC);
+
+-- Filtro de deudas/préstamos pendientes (summary endpoint)
+CREATE INDEX IF NOT EXISTS idx_expenses_type_status
+  ON expenses(type, status);
+
+-- Agregación por categoría (categories endpoint)
+CREATE INDEX IF NOT EXISTS idx_expenses_category_total
+  ON expenses(category, total);
+```
+
+---
+
+### Fase 5 — Polish Final: Toasts, Badges, Micro-interacciones
+
+> **Meta:** Detalles que elevan la experiencia de "funcional" a "premium".
+
+---
+
+#### [MODIFY] [index.html](file:///c:/Users/PLI%20INGENIERIA/Desktop/ELIMINADOR%20POTENTE%20REVO/SUPREMA%20DE%20GASTOS/cloudflare/web/index.html)
+
+**1. Sistema de toasts:**
+```css
+.toast {
+  position: fixed;
+  bottom: 2rem; right: 2rem;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.5rem;
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  animation: toastIn 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+             toastOut 0.3s ease 2.7s forwards;
+}
+.toast.success { border-left: 3px solid var(--green); }
+.toast.error   { border-left: 3px solid var(--red); }
+
+@keyframes toastIn  { from { transform: translateY(20px); opacity: 0; } }
+@keyframes toastOut { to   { transform: translateY(10px); opacity: 0; } }
+```
+```js
+function showToast(message, type = 'success') {
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = type === 'success' ? `✓ ${message}` : `✗ ${message}`;
+  document.body.append(toast);
+  setTimeout(() => toast.remove(), 3200);
+}
+// Se usa al guardar/editar/eliminar un gasto:
+showToast('Gasto guardado correctamente');
+```
+
+**2. Badges de clasificación y estado con color:**
+```css
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.badge-normal   { background: rgba(96, 165, 250, 0.15); color: var(--blue); }
+.badge-deuda    { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+.badge-prestamo { background: rgba(251, 191, 36, 0.15); color: var(--orange); }
+.badge-pending  { background: rgba(251, 191, 36, 0.15); color: var(--orange); }
+.badge-paid     { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.badge-unconfirmed { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+```
+
+**3. Indicador de conexión mejorado:**
+```css
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+.status-dot.online  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+.status-dot.offline { background: var(--muted); }
+.status-dot.error   { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+```
+
+**4. Ripple effect en botones:**
+```js
+document.querySelectorAll('button').forEach(btn => {
+  btn.addEventListener('click', function(e) {
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    const rect = this.getBoundingClientRect();
+    ripple.style.left = `${e.clientX - rect.left}px`;
+    ripple.style.top = `${e.clientY - rect.top}px`;
+    this.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 600);
+  });
+});
+```
+```css
+.ripple {
+  position: absolute;
+  width: 0; height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  transform: translate(-50%, -50%);
+  animation: rippleExpand 0.6s ease-out;
+  pointer-events: none;
+}
+@keyframes rippleExpand {
+  to { width: 300px; height: 300px; opacity: 0; }
+}
+```
+
+---
+
+## Resumen de Impacto Estimado
+
+| Métrica | ❌ Antes (actual) | ✅ Después | Mejora |
+|---|---|---|---|
+| **Payload primera carga** | ~400 KB (861 filas JSON) | ~15 KB (summary + 50 filas) | **-96%** |
+| **Nodos DOM iniciales** | ~9,500 (861 × 11 celdas) | ~550 (50 × 7 celdas) | **-94%** |
+| **Tiempo hasta contenido útil** | 3-6s (descargar → calcular → render) | <1s (skeleton → summary → 50 filas) | **-80%** |
+| **Cálculos JS en navegador** | 6× `.filter().reduce()` sobre 861 items | 0 (todo calculado en SQL) | **-100%** |
+| **Ancho de tabla** | 1905px fijo, scroll horizontal | `100%` fluido, responsivo | ∞ |
+| **Experiencia móvil** | Inutilizable (scroll horizontal) | Tarjetas nativas con grid | ✅ |
+| **Feedback visual** | Ninguno | Skeleton + spinner + toast + ripple | ✅ |
+| **Lecturas D1 en recarga** | 1 query de 2000 filas | 3 queries ligeras, luego `304` | **-70%** |
+| **Identidad visual** | Genérica (system-ui) | Financial Clarity (glassmorphism + Inter) | ✅ |
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+# Desde la carpeta cloudflare:
+cd "C:\Users\PLI INGENIERIA\Desktop\ELIMINADOR POTENTE REVO\SUPREMA DE GASTOS\cloudflare"
+
+# 1. Aplicar migración de índices localmente
+npm run db:local
+
+# 2. Levantar servidor de desarrollo
+npx wrangler dev
+
+# 3. Probar endpoints nuevos (en otra terminal)
+curl -s -H "Authorization: Bearer <token>" "http://localhost:8787/api/summary" | jq
+curl -s -H "Authorization: Bearer <token>" "http://localhost:8787/api/categories" | jq
+curl -s -H "Authorization: Bearer <token>" "http://localhost:8787/api/pending" | jq
+
+# 4. Probar paginación
+curl -s -H "Authorization: Bearer <token>" "http://localhost:8787/api/expenses?limit=5&offset=0" | jq '.has_more, .total_count'
+curl -s -H "Authorization: Bearer <token>" "http://localhost:8787/api/expenses?limit=50&offset=850" | jq '.has_more'
+
+# 5. Probar ETag (segunda petición devuelve 304)
+ETAG=$(curl -sI -H "Authorization: Bearer <token>" "http://localhost:8787/api/summary" | grep -i etag | awk '{print $2}')
+curl -sI -H "Authorization: Bearer <token>" -H "If-None-Match: $ETAG" "http://localhost:8787/api/summary"
+
+# 6. Deploy a producción
+npm run db:remote   # aplicar índices en D1 remoto
+npm run deploy      # publicar Worker + assets
+```
+
+### Manual Verification
+1. Abrir [`https://asistente-financiero.wbfuhn1.workers.dev`](https://asistente-financiero.wbfuhn1.workers.dev) → confirmar que los skeleton screens aparecen antes que los datos.
+2. Ingresar el token → confirmar que el dashboard carga en **<1 segundo** con totales correctos.
+3. Scroll al historial → confirmar que muestra 50 filas + botón "Cargar más".
+4. Clic en "Cargar más" → confirmar que agrega 50 filas con animación fade-in.
+5. Editar un gasto en línea → confirmar toast verde "✓ Gasto actualizado".
+6. Abrir en celular → confirmar que las filas son tarjetas y no hay scroll horizontal.
+7. Verificar glassmorphism: las cards deben tener blur visible detrás.
+8. Verificar tipografía: la fuente debe ser Inter, los montos con dígitos alineados.
+
+---
+
+## Orden de Ejecución
+
+```mermaid
+gantt
+    title Fases de implementación
+    dateFormat X
+    axisFormat %s
+
+    section Fase 1 · Backend
+    Endpoint /api/summary reescrito          :a1, 0, 1
+    Endpoint /api/categories nuevo           :a2, 0, 1
+    Endpoint /api/pending nuevo              :a3, 0, 1
+    Paginación en /api/expenses              :a4, 1, 2
+    Migración de índices (0003)              :a5, 2, 3
+
+    section Fase 2 · Rediseño Visual
+    Variables CSS Financial Clarity           :b1, 3, 4
+    Tipografía Inter + header blur           :b2, 3, 4
+    Glassmorphism cards + inputs             :b3, 4, 5
+    Botón glow + nav animada                 :b4, 4, 5
+
+    section Fase 3 · Tabla + UX
+    Skeleton loading dashboard + tabla       :c1, 5, 6
+    Tabla responsiva escritorio (7 cols)     :c2, 6, 7
+    Cards móvil @media 768px                 :c3, 6, 7
+    Botón Cargar más + fade-in              :c4, 7, 8
+    loadExpenses() con Promise.all           :c5, 7, 8
+
+    section Fase 4 · Caché
+    Cache-Control headers                    :d1, 8, 9
+    ETag + 304 Not Modified                  :d2, 8, 9
+
+    section Fase 5 · Polish
+    Toast system                             :e1, 9, 10
+    Badges de tipo/estado con color          :e2, 9, 10
+    Ripple + indicador conexión              :e3, 9, 10
+    Barras categoría animadas                :e4, 9, 10
+```
+
+> [!TIP]
+> **Las Fases 1-3 juntas** resuelven el problema de lentitud y entregan el rediseño visual. Las Fases 4-5 son el polish profesional que convierte la app en algo de nivel producción.

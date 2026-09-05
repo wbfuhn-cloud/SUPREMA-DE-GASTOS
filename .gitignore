@@ -1,0 +1,60 @@
+# ── Credenciales y secretos ────────────────────────────
+.env
+.token_cache.json
+data/.token_cache.json
+chat_id.txt
+data/chat_id.txt
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+
+# ── Bases de datos ─────────────────────────────────────
+*.db
+database/*.db
+data/*.db
+
+# ── Binarios grandes ──────────────────────────────────
+bin/
+cloudflared.exe
+
+# ── Caché y temporales ────────────────────────────────
+cache/
+downloads/
+*.pkl
+*.log
+scratch/
+
+# ── Playwright (datos de sesión del navegador) ────────
+playwright_user_data/
+
+# ── IDE ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Gemini IDE ─────────────────────────────────────────
+.gemini/
+*.skill
+
+# ── Archivos de pytest ─────────────────────────────────
+.pytest_cache/
+
+# Generated one-time cloud migration
+cloudflare/.generated_legacy_import.sql
+cloudflare/.generated_legacy_import/
