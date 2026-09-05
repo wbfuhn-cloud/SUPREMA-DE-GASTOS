@@ -119,18 +119,18 @@
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="glass-card liquidGL rounded-3xl p-6 shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col items-center text-center">
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Promedio Semanal</span><div class="content">
-                <span class="text-3xl font-heading font-black text-primary">${{ '%,.0f'|format(avg_weekly) }}</span>
+                <span class="text-3xl font-heading font-black text-primary">${{ avg_weekly | format_currency(0) }}</span>
                 <span class="text-[10px] text-slate-400 mt-2">Basado en registros actuales</span></div>
             </div>
             <div class="glass-card liquidGL rounded-3xl p-6 shadow-sm border border-rose-200 dark:border-rose-900/30 flex flex-col items-center text-center">
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Pico de Gasto</span><div class="content">
                 <span class="text-xl font-heading font-bold text-rose-500 mb-1">{{ worst_week }}</span>
-                <span class="text-2xl font-heading font-black text-slate-900 dark:text-white">${{ '%,.0f'|format(weekly_spending.get(worst_week, 0)) }}</span></div>
+                <span class="text-2xl font-heading font-black text-slate-900 dark:text-white">${{ weekly_spending.get(worst_week, 0) | format_currency(0) }}</span></div>
             </div>
             <div class="glass-card liquidGL rounded-3xl p-6 shadow-sm border border-emerald-200 dark:border-emerald-900/30 flex flex-col items-center text-center">
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Eficiencia Máxima</span><div class="content">
                 <span class="text-xl font-heading font-bold text-emerald-500 mb-1">{{ best_week }}</span>
-                <span class="text-2xl font-heading font-black text-slate-900 dark:text-white">${{ '%,.0f'|format(weekly_spending.get(best_week, 0)) }}</span></div>
+                <span class="text-2xl font-heading font-black text-slate-900 dark:text-white">${{ weekly_spending.get(best_week, 0) | format_currency(0) }}</span></div>
             </div>
         </div>
 
@@ -174,7 +174,7 @@
                             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{{ cat_labels[i] }}</span>
                             <span class="font-bold text-slate-700 dark:text-slate-300">Registros: {{ cat_data[cat_labels[i]]['count'] }}</span>
                         </div>
-                        <span class="text-lg font-heading font-black text-primary">${{ '%,.2f'|format(cat_totals[i]) }}</span>
+                        <span class="text-lg font-heading font-black text-primary">${{ cat_totals[i] | format_currency }}</span>
                     </div>
                     {% endfor %}
                 </div>

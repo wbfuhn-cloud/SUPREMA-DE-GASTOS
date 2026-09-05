@@ -202,10 +202,10 @@
         
         <!-- Year tabs -->
         <div class="flex flex-wrap gap-2 mb-6">
-            {{ years_html }}
+            {{ years_html | safe }}
         </div>
         
-        {{ unconfirmed_banner }}
+        {{ unconfirmed_banner | safe }}
 
         <!-- Bento Grid -->
         <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -216,7 +216,7 @@
                 <div class="content">
                     <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Gasto Total Acumulado</h2>
                     <div class="text-5xl md:text-6xl font-heading font-extrabold text-slate-900 dark:text-white tracking-tight" id="stat-total">
-                        ${{ '%,.2f'|format(total_amount) }}
+                        ${{ total_amount | format_currency }}
                     </div>
                 </div>
                 <div class="content flex flex-wrap items-center gap-6 mt-12">
@@ -226,7 +226,7 @@
                         </div>
                         <div>
                             <p class="text-[10px] uppercase font-bold text-slate-400">Promedio Diario</p>
-                            <p class="font-bold text-emerald-600" id="stat-avg">${{ '%,.2f'|format(daily_avg) }}</p>
+                            <p class="font-bold text-emerald-600" id="stat-avg">${{ daily_avg | format_currency }}</p>
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -235,7 +235,7 @@
                         </div>
                         <div>
                             <p class="text-[10px] uppercase font-bold text-slate-400">Proyección Mensual</p>
-                            <p class="font-bold text-primary" id="stat-projection">${{ '%,.2f'|format(monthly_projection) }}</p>
+                            <p class="font-bold text-primary" id="stat-projection">${{ monthly_projection | format_currency }}</p>
                         </div>
                     </div>
                 </div>
@@ -271,7 +271,7 @@
                         <span class="material-symbols-outlined text-slate-300">chevron_right</span>
                     </div>
                     <p class="text-[10px] font-bold text-slate-400 uppercase">Préstamos a Cobrar</p>
-                    <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1" id="stat-loan">${{ '%,.2f'|format(total_loan) }}</p>
+                    <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1" id="stat-loan">${{ total_loan | format_currency }}</p>
                 </div>
                 <div class="glass-card rounded-3xl p-6 cursor-pointer hover:border-rose-400/50 transition-all group" onclick="openModal('modal-debts')">
                     <div class="flex justify-between items-start mb-4">
@@ -281,7 +281,7 @@
                         <span class="material-symbols-outlined text-slate-300">chevron_right</span>
                     </div>
                     <p class="text-[10px] font-bold text-slate-400 uppercase">Deudas a Pagar</p>
-                    <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1" id="stat-debt">${{ '%,.2f'|format(total_debt) }}</p>
+                    <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1" id="stat-debt">${{ total_debt | format_currency }}</p>
                 </div>
             </div>
 
@@ -291,7 +291,7 @@
                     <span class="material-symbols-outlined text-sm">stars</span> Top Comercios
                 </h2>
                 <div id="top-merchants-container" class="space-y-4">
-                    {{ top_merchants_html }}
+                    {{ top_merchants_html | safe }}
                 </div>
             </div>
 
@@ -376,7 +376,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-50 dark:divide-slate-800/50">
-                            {{ recent_html_clean }}
+                            {{ recent_html_clean | safe }}
                         </tbody>
                     </table>
                 </div>
@@ -480,7 +480,7 @@
             <div class="p-6 max-h-[70vh] overflow-y-auto">
                 <table class="w-full">
                     <tbody class="divide-y dark:divide-slate-800">
-                        {{ data['loans_html'] }}
+                        {{ loans_html | safe }}
                     </tbody>
                 </table>
             </div>
@@ -498,7 +498,7 @@
             <div class="p-6 max-h-[70vh] overflow-y-auto">
                 <table class="w-full">
                     <tbody class="divide-y dark:divide-slate-800">
-                        {{ data['debts_html'] }}
+                        {{ debts_html | safe }}
                     </tbody>
                 </table>
             </div>
@@ -589,30 +589,50 @@
             }
         }
 
+        document.addEventListener('DOMContentLoaded', () => {
+            const dateInput = document.getElementById('ex-date');
+            if (dateInput && !dateInput.value) {
+                const today = new Date().toISOString().split('T')[0];
+                dateInput.value = today;
+            }
+        });
+
         async function submitExpense() {
             const btn = document.getElementById('btn-save-expense');
+            const merchant = document.getElementById('ex-merchant').value.trim();
+            const total = parseFloat(document.getElementById('ex-amount').value);
+            const date = document.getElementById('ex-date').value;
+            const category = document.getElementById('ex-category').value;
+            const type = document.getElementById('ex-type').value;
+            const details = document.getElementById('ex-details').value.trim();
+
+            if (!merchant || isNaN(total) || total <= 0 || !date) {
+                alert('Por favor especifica un Comercio, un Monto válido (mayor a 0) y una Fecha.');
+                return;
+            }
+
             btn.disabled = true;
             btn.textContent = 'Guardando...';
 
             const expenseData = {
-                merchant: document.getElementById('ex-merchant').value,
-                total: parseFloat(document.getElementById('ex-amount').value),
-                date: document.getElementById('ex-date').value,
-                category: document.getElementById('ex-category').value,
-                type: document.getElementById('ex-type').value,
-                details: document.getElementById('ex-details').value
+                merchant: merchant,
+                total: total,
+                date: date,
+                category: category,
+                type: type,
+                details: details
             };
             
             if (expenseData.category === 'NEW_CATEGORY_PLUS_OPTION') {
                 const newCatName = document.getElementById('ex-new-category').value.trim();
                 if (!newCatName) {
-                    alert('Nombre de categoría requerido');
+                    alert('Por favor ingresa el nombre de la nueva categoría.');
                     btn.disabled = false;
-                    btn.textContent = 'Guardar';
+                    btn.textContent = 'Guardar Transacción';
                     return;
                 }
                 try {
-                    const respCat = await fetch('/api/add-category', {
+                    await fetch('/api/add-category', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name: newCatName })
@@ -627,21 +647,22 @@
                 const response = await fetch('/api/add-expense', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...expenseData, day: new Date(expenseData.date + 'T12:00:00').getDate(), month: 'GENERIC', week: 0 })
+                    body: JSON.stringify(expenseData)
                 });
                 const data = await response.json();
                 if (data.success) {
-                    btn.textContent = '¡Listo!';
+                    btn.textContent = '¡Guardado!';
                     btn.classList.replace('bg-primary', 'bg-emerald-500');
-                    setTimeout(() => window.location.reload(), 1000);
+                    setTimeout(() => window.location.reload(), 800);
                 } else {
-                    alert('Error: ' + data.message);
+                    alert('Error al guardar: ' + (data.message || 'Respuesta inválida'));
                     btn.disabled = false;
-                    btn.textContent = 'Guardar';
+                    btn.textContent = 'Guardar Transacción';
                 }
             } catch (error) {
-                alert('Error de red');
+                alert('Error de red al conectar con el servidor.');
                 btn.disabled = false;
+                btn.textContent = 'Guardar Transacción';
             }
         }
 

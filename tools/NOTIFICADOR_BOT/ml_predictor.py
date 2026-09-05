@@ -22,6 +22,7 @@ try:
     import joblib
     from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
     from sklearn.model_selection import TimeSeriesSplit
     from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
     SKLEARN_AVAILABLE = True
@@ -64,8 +65,7 @@ class StockMLPredictor:
         self.db_path = Path(db_path) if db_path else base_dir / "learner.db"
         self.model_path = Path(model_path) if model_path else base_dir / "stock_ml_model.joblib"
         
-        self.scaler: Optional[StandardScaler] = None
-        self.model: Optional[GradientBoostingClassifier] = None
+        self.model: Optional[Pipeline] = None
         self.metrics: Dict[str, Any] = {}
         self.last_trained: Optional[str] = None
         
@@ -172,27 +172,26 @@ class StockMLPredictor:
 
         log.info(f"Iniciando entrenamiento ML con {len(X)} muestras (Positivos: {int(np.sum(y))}).")
 
-        # Escalamiento de características
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-
-        # Configuración Gradient Boosting optimizada para datos desbalanceados
-        clf = GradientBoostingClassifier(
-            n_estimators=120,
-            learning_rate=0.04,
-            max_depth=3,
-            subsample=0.85,
-            min_samples_split=10,
-            min_samples_leaf=5,
-            random_state=42
-        )
+        # Pipeline con escalamiento y Gradient Boosting
+        clf = Pipeline([
+            ('scaler', StandardScaler()),
+            ('gbm', GradientBoostingClassifier(
+                n_estimators=150,
+                learning_rate=0.03,
+                max_depth=4,
+                subsample=0.8,
+                min_samples_split=15,
+                min_samples_leaf=5,
+                random_state=42
+            ))
+        ])
 
         # Validación cruzada temporal (TimeSeriesSplit)
         tscv = TimeSeriesSplit(n_splits=4)
         cv_precisions, cv_recalls, cv_f1s = [], [], []
 
-        for train_idx, val_idx in tscv.split(X_scaled):
-            X_train_cv, X_val_cv = X_scaled[train_idx], X_scaled[val_idx]
+        for train_idx, val_idx in tscv.split(X):
+            X_train_cv, X_val_cv = X[train_idx], X[val_idx]
             y_train_cv, y_val_cv = y[train_idx], y[val_idx]
             
             # Ajustar pesos de clases si el conjunto de entrenamiento tiene positivos
@@ -209,13 +208,14 @@ class StockMLPredictor:
 
         # Entrenamiento final con todo el dataset
         sample_weights_full = np.where(y == 1, (len(y) - np.sum(y)) / max(np.sum(y), 1), 1.0)
-        clf.fit(X_scaled, y, sample_weight=sample_weights_full)
+        clf.fit(X, y, gbm__sample_weight=sample_weights_full)
 
-        y_prob = clf.predict_proba(X_scaled)[:, 1]
+        y_prob = clf.predict_proba(X)[:, 1]
         y_pred_full = (y_prob >= 0.5).astype(int)
 
-        # Matriz e importancias de características
-        feature_importances = dict(zip(FEATURE_NAMES, clf.feature_importances_.round(4).tolist()))
+        # Matriz e importancias de características (del paso GBM)
+        gbm = clf.named_steps['gbm']
+        feature_importances = dict(zip(FEATURE_NAMES, gbm.feature_importances_.round(4).tolist()))
 
         metrics = {
             "status": "success",
@@ -231,7 +231,6 @@ class StockMLPredictor:
             "trained_at": datetime.now().isoformat()
         }
 
-        self.scaler = scaler
         self.model = clf
         self.metrics = metrics
         self.last_trained = metrics["trained_at"]
@@ -242,12 +241,8 @@ class StockMLPredictor:
 
     def save_model(self) -> None:
         """Guarda el modelo, escalador y métricas en disco."""
-        if self.model is None or self.scaler is None:
-            return
-
         payload = {
             "model": self.model,
-            "scaler": self.scaler,
             "metrics": self.metrics,
             "last_trained": self.last_trained,
             "feature_names": FEATURE_NAMES
@@ -263,7 +258,6 @@ class StockMLPredictor:
         try:
             payload = joblib.load(self.model_path)
             self.model = payload.get("model")
-            self.scaler = payload.get("scaler")
             self.metrics = payload.get("metrics", {})
             self.last_trained = payload.get("last_trained")
             log.info(f"Modelo ML cargado desde {self.model_path} (Entrenado: {self.last_trained})")
@@ -272,37 +266,65 @@ class StockMLPredictor:
             log.error(f"Error cargando modelo ML: {e}")
             return False
 
-    def predict_score(self, ticker_data: Dict[str, Any]) -> Tuple[float, float, str]:
+    def predict_score(self, ticker_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Dada la información técnica de una acción, retorna:
-        (ml_score [0-100], proba_win [0.0-1.0], confidence_level ['ALTA', 'MEDIA', 'BAJA'])
+        Dada la información técnica de una acción, retorna un diccionario con
+        la predicción estructurada, la probabilidad, intervalos y top features.
         """
-        if not SKLEARN_AVAILABLE or self.model is None or self.scaler is None:
-            # Fallback si no hay modelo entrenado
-            heuristic_score = float(ticker_data.get("score") or 50.0)
-            return heuristic_score, heuristic_score / 100.0, "HEURÍSTICO"
+        result = {
+            "ml_score": float(ticker_data.get("score") or 50.0),
+            "probability": float(ticker_data.get("score") or 50.0) / 100.0,
+            "confidence_level": "HEURÍSTICO",
+            "feature_breakdown": {},
+            "source": "fallback"
+        }
+        
+        if not SKLEARN_AVAILABLE or self.model is None:
+            return result
 
         try:
             feat_vec = self._extract_feature_vector(ticker_data)
             X_in = np.array([feat_vec], dtype=np.float64)
-            X_scaled = self.scaler.transform(X_in)
-            proba_win = float(self.model.predict_proba(X_scaled)[0, 1])
+            proba_win = float(self.model.predict_proba(X_in)[0, 1])
 
             # Convertir probabilidad a ML Score (0 a 100)
             ml_score = round(proba_win * 100.0, 1)
 
-            if proba_win >= 0.65:
+            if proba_win >= 0.70:
+                conf = "MUY ALTA"
+            elif proba_win >= 0.60:
                 conf = "ALTA"
             elif proba_win >= 0.45:
                 conf = "MEDIA"
             else:
                 conf = "BAJA"
 
-            return ml_score, proba_win, conf
+            # Top features for this specific prediction
+            # Since global importances represent the model, we serve the global ones as breakdown
+            gbm = self.model.named_steps['gbm']
+            f_imp = gbm.feature_importances_
+            
+            # Find the top 3 features for this instance based on value * importance
+            scaled_feat = self.model.named_steps['scaler'].transform(X_in)[0]
+            contributions = scaled_feat * f_imp
+            
+            top_indices = np.argsort(np.abs(contributions))[-3:][::-1]
+            breakdown = {}
+            for idx in top_indices:
+                feature = FEATURE_NAMES[idx]
+                val = float(contributions[idx])
+                breakdown[feature] = round(val, 4)
+
+            return {
+                "ml_score": ml_score,
+                "probability": proba_win,
+                "confidence_level": conf,
+                "feature_breakdown": breakdown,
+                "source": "ml_model"
+            }
         except Exception as e:
             log.error(f"Error prediciendo con modelo ML: {e}")
-            heuristic_score = float(ticker_data.get("score") or 50.0)
-            return heuristic_score, heuristic_score / 100.0, "FALLBACK"
+            return result
 
     def get_status(self) -> Dict[str, Any]:
         """Retorna el estado actual del modelo de Machine Learning."""

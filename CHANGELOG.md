@@ -2,6 +2,37 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.2.2] — 2026-09-05 19:49
+### CORREGIR
+- `src/templates/dashboard.html`:
+  - Se aplicó el filtro `| safe` a las variables `years_html`, `unconfirmed_banner`, `top_merchants_html` y `recent_html_clean` para evitar que Jinja2 escape las etiquetas HTML y las muestre como texto plano en el navegador.
+  - Se mejoró la función `submitExpense()` añadiendo validación de formulario, prevención de montos nulos/cero y auto-llenado de la fecha actual en la interfaz.
+- `src/database.py`:
+  - Se implementó la función `_normalize_expense_data` que calcula automáticamente el mes en español (ej. `SEPTIEMBRE`), el día y el número de semana ISO a partir de la fecha seleccionada (`date`), eliminando el valor por defecto `'GENERIC'` y `0`.
+
+## [v2.2.1] — 2026-09-05 19:43
+### CORREGIR
+- `src/server.py`:
+  - Se registró el filtro personalizado `@app.template_filter('format_currency')` para dar formato de moneda con separador de miles sin depender del operador de formateo `%` de Python.
+- `src/templates/dashboard.html` y `src/templates/details.html`:
+  - Se reemplazaron las llamadas `{{ '%,.2f'|format(...) }}` y `{{ '%,.0f'|format(...) }}` por el filtro `| format_currency`, resolviendo el error `ValueError: unsupported format character ',' (0x2c) at index 1`.
+  - Se corrigió la referencia de contexto `{{ data['loans_html'] }}` y `{{ data['debts_html'] }}` a `{{ loans_html | safe }}` y `{{ debts_html | safe }}`.
+
+## [v2.2.0] — 2026-09-05 19:40
+### AGREGAR
+- `src/bot.py`:
+  - Se agregó persistencia a los gastos pendientes (`self.pending_expenses`) utilizando un archivo `database/pending_expenses.json`.
+  - **Motivo**: Evitar pérdida de contexto si el usuario está en proceso de confirmar un gasto y el bot o servidor se reinicia o se pierde la red.
+
+### MODIFICAR
+- `src/database.py`:
+  - Se envolvió todos los accesos de escritura (`ensure_email_log_table`, `log_email`) con `self._write_lock` para evitar errores `database is locked` en concurrencia (Fase 2).
+  - Se implementaron bloques `try/except sqlite3.Error` en todas las lecturas de la base de datos local para que devuelvan listas o diccionarios vacíos en lugar de estrellar el programa.
+- `src/email_reader.py`:
+  - Se encapsularon las peticiones HTTP a Microsoft Graph (`_graph_get` y `_graph_patch`) dentro de un bloque `try/except` de `requests.exceptions.RequestException` para evitar cierres silenciosos por fallos temporales de red (Fase 3).
+- `tools/NOTIFICADOR_BOT/stock_scanner.py` y `tools/NOTIFICADOR_BOT/app.js`:
+  - Se adaptó la lógica de extracción de predicción ML para renderizar un desglose dinámico (*Feature Importance*) de impacto de predicción en el UI.
+
 ## [v2.1.0] — 2026-09-05 13:17
 ### AGREGAR
 - `tools/NOTIFICADOR_BOT/ml_predictor.py`:

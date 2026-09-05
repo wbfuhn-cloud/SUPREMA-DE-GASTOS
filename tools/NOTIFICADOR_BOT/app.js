@@ -684,6 +684,21 @@ function selectTicker(row, trElement) {
             <h3>Notas</h3>
             <p style="color: var(--warning-color); font-size:13px;">${row.Nota || 'Sin notas'}</p>
         </div>
+        
+        ${row.ML_Breakdown && Object.keys(row.ML_Breakdown).length > 0 ? `
+        <div class="detail-section" style="border: 1px solid var(--accent-color); padding: 10px; border-radius: 8px;">
+            <h3 style="color: var(--accent-color); margin-top: 0;"><i class="fa-solid fa-brain"></i> Análisis ML Predictivo</h3>
+            <div class="detail-grid">
+                ${Object.entries(row.ML_Breakdown).map(([k, v]) => `
+                    <div class="detail-item">
+                        <span class="label">${k}</span>
+                        <span class="val" style="color:${v > 0 ? 'var(--success-color)' : 'var(--danger-color)'}">${v > 0 ? '+' : ''}${v}</span>
+                    </div>
+                `).join('')}
+            </div>
+            <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px; margin-bottom: 0;">* Top features de impacto en la predicción actual (Modelo Gradient Boosting).</p>
+        </div>
+        ` : ''}
     `;
     
     detailsContent.innerHTML = detailsHTML;

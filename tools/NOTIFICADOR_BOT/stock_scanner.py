@@ -500,10 +500,11 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
         # Predicción de Machine Learning
         ml_score = scores['score_total']
         ml_conf = "HEURÍSTICO"
+        ml_breakdown = {}
         try:
             from ml_predictor import get_ml_predictor
             predictor = get_ml_predictor()
-            ml_score, proba_win, ml_conf = predictor.predict_score({
+            prediction = predictor.predict_score({
                 'score': scores['score_total'],
                 'rsi': rsi,
                 'macd': macd,
@@ -517,6 +518,9 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
                 'market_cap': info.get('marketCap', 0) or 0,
                 'active_indicators': scores.get('active_indicators', [])
             })
+            ml_score = prediction.get('ml_score', ml_score)
+            ml_conf = prediction.get('confidence_level', ml_conf)
+            ml_breakdown = prediction.get('feature_breakdown', {})
         except Exception as e:
             logger.debug(f"ML prediction error for {ticker}: {e}")
 
@@ -526,6 +530,7 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'Score':            scores['score_total'],
             'ML_Score':         ml_score,
             'ML_Confidence':    ml_conf,
+            'ML_Breakdown':     ml_breakdown,
             'Is_Leveraged':     is_leveraged,
             'Viabilidad':       scores['etiqueta'],
             'Score_Tech':       scores['score_tecnico'],

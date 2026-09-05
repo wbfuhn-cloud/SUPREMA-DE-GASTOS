@@ -53,6 +53,19 @@ app = Flask(__name__)
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 CORS(app)
 
+@app.template_filter('format_currency')
+def format_currency_filter(val, decimals=2):
+    try:
+        if val is None:
+            return "0.00" if decimals == 2 else "0"
+        val_float = float(val)
+        if decimals == 0:
+            return f"{val_float:,.0f}"
+        return f"{val_float:,.2f}"
+    except (ValueError, TypeError):
+        return str(val)
+
+
 # ─── Estado global del escaneo ───────────────────────────────────────────────
 _scan_lock = threading.Lock()
 SCAN_STATE: dict = {

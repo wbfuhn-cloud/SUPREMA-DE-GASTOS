@@ -210,16 +210,23 @@ class EmailReader:
 
     def _graph_get(self, token, url, params=None):
         headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-        resp = http_requests.get(url, headers=headers, params=params, timeout=30)
-        if resp.status_code == 200:
-            return resp.json()
-        log.error(f"Graph API error {resp.status_code}: {resp.text[:300]}")
+        try:
+            resp = http_requests.get(url, headers=headers, params=params, timeout=30)
+            if resp.status_code == 200:
+                return resp.json()
+            log.error(f"Graph API error {resp.status_code}: {resp.text[:300]}")
+        except http_requests.exceptions.RequestException as e:
+            log.error(f"Graph API network error (_graph_get): {e}")
         return None
 
     def _graph_patch(self, token, url, body):
         headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-        resp = http_requests.patch(url, headers=headers, json=body, timeout=30)
-        return resp.status_code in (200, 204)
+        try:
+            resp = http_requests.patch(url, headers=headers, json=body, timeout=30)
+            return resp.status_code in (200, 204)
+        except http_requests.exceptions.RequestException as e:
+            log.error(f"Graph API network error (_graph_patch): {e}")
+            return False
 
     def _fetch_baz_emails(self, token, unread_only=True, limit=20):
         """Obtiene correos de BAZ Digital y otros bancos via Graph API."""

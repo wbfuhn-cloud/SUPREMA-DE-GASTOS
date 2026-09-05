@@ -18,6 +18,27 @@ class BaseDatabaseManager:
     def add_expense(self, data: Dict) -> Tuple[bool, str]: pass
     def update_expense(self, expense_id: int, data: Dict) -> Tuple[bool, str]: pass
     def delete_expense(self, expense_id: int) -> Tuple[bool, str]: pass
+
+SPANISH_MONTHS = [
+    'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+    'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+]
+
+def _normalize_expense_data(data: Dict) -> Dict:
+    norm = dict(data)
+    date_str = norm.get('date')
+    if date_str:
+        try:
+            dt = datetime.strptime(str(date_str)[:10], '%Y-%m-%d')
+            if not norm.get('day') or not str(norm.get('day')).isdigit():
+                norm['day'] = dt.day
+            if not norm.get('month') or str(norm.get('month')).upper() in ('', 'GENERIC', 'UNKNOWN'):
+                norm['month'] = SPANISH_MONTHS[dt.month - 1]
+            if not norm.get('week') or not str(norm.get('week')).isdigit() or int(norm.get('week')) == 0:
+                norm['week'] = dt.isocalendar()[1]
+        except Exception:
+            pass
+    return norm
     def get_dashboard_summary(self) -> dict: pass
     def get_available_years(self) -> List[int]: pass
     def get_expenses_by_year(self, year: int, include_paid: bool = True) -> List[Dict]: pass
@@ -92,6 +113,7 @@ class LocalDatabaseManager(BaseDatabaseManager):
     # (Aquí se copian todos los métodos de SQLite que estaban originalmente, por brevedad los resumiré. 
     # Mantenemos las implementaciones principales intactas).
     def add_expense(self, data: Dict) -> Tuple[bool, str]:
+        data = _normalize_expense_data(data)
         with self._write_lock:
             conn = self._get_connection()
             try:
@@ -157,15 +179,23 @@ class LocalDatabaseManager(BaseDatabaseManager):
             return {'count':0, 'total':0, 'debt':0, 'loan':0, 'month_total':0}
 
     def get_available_years(self) -> List[int]:
-        conn = self._get_connection()
-        rows = conn.execute("SELECT DISTINCT CAST(strftime('%Y', date) AS INTEGER) as year FROM expenses ORDER BY year DESC").fetchall()
-        return [row['year'] for row in rows]
+        try:
+            conn = self._get_connection()
+            rows = conn.execute("SELECT DISTINCT CAST(strftime('%Y', date) AS INTEGER) as year FROM expenses ORDER BY year DESC").fetchall()
+            return [row['year'] for row in rows]
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting years: {e}")
+            return []
 
     def get_expenses_by_year(self, year: int, include_paid: bool = True) -> List[Dict]:
-        conn = self._get_connection()
-        query = 'SELECT * FROM expenses WHERE date LIKE ? ' + ('' if include_paid else "AND status = 'pending' ") + 'ORDER BY date DESC, id DESC'
-        rows = conn.execute(query, (f'{year}-%',)).fetchall()
-        return [dict(r) for r in rows]
+        try:
+            conn = self._get_connection()
+            query = 'SELECT * FROM expenses WHERE date LIKE ? ' + ('' if include_paid else "AND status = 'pending' ") + 'ORDER BY date DESC, id DESC'
+            rows = conn.execute(query, (f'{year}-%',)).fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting expenses by year: {e}")
+            return []
 
     def get_all_expenses(self, include_paid: bool = True) -> List[Dict]:
         return self.get_expenses(limit=-1, include_paid=include_paid)
@@ -173,50 +203,82 @@ class LocalDatabaseManager(BaseDatabaseManager):
     def get_expenses(self, limit: int = 200, offset: int = 0, include_paid: bool = True) -> List[Dict]:
         if (time.time() - self._cache_last_check) < self._cache_ttl and self._cache_data:
             return self._cache_data
-        conn = self._get_connection()
-        query = 'SELECT * FROM expenses ' + ('' if include_paid else "WHERE status = 'pending' ") + 'ORDER BY date DESC, id DESC'
-        if limit > 0: query += f' LIMIT {limit} OFFSET {offset}'
-        rows = conn.execute(query).fetchall()
-        expenses = [dict(r) for r in rows]
-        with self._cache_lock:
-            self._cache_data = expenses
-            self._cache_last_check = time.time()
-        return expenses
+        try:
+            conn = self._get_connection()
+            query = 'SELECT * FROM expenses ' + ('' if include_paid else "WHERE status = 'pending' ") + 'ORDER BY date DESC, id DESC'
+            if limit > 0: query += f' LIMIT {limit} OFFSET {offset}'
+            rows = conn.execute(query).fetchall()
+            expenses = [dict(r) for r in rows]
+            with self._cache_lock:
+                self._cache_data = expenses
+                self._cache_last_check = time.time()
+            return expenses
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting expenses: {e}")
+            return []
 
     def get_categories(self) -> List[str]:
-        conn = self._get_connection()
-        rows = conn.execute("SELECT DISTINCT category FROM expenses WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category").fetchall()
-        return sorted(list(set(str(row['category']).strip().upper() for row in rows if row['category'] and str(row['category']).strip())))
+        try:
+            conn = self._get_connection()
+            rows = conn.execute("SELECT DISTINCT category FROM expenses WHERE category IS NOT NULL AND TRIM(category) != '' ORDER BY category").fetchall()
+            return sorted(list(set(str(row['category']).strip().upper() for row in rows if row['category'] and str(row['category']).strip())))
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting categories: {e}")
+            return []
 
     def get_budgets(self) -> List[Dict]:
-        conn = self._get_connection()
-        rows = conn.execute('SELECT category, monthly_limit FROM budgets').fetchall()
-        return [dict(r) for r in rows]
+        try:
+            conn = self._get_connection()
+            rows = conn.execute('SELECT category, monthly_limit FROM budgets').fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting budgets: {e}")
+            return []
 
     def get_monthly_spending_by_category(self, month: str, year: int) -> Dict[str, float]:
-        conn = self._get_connection()
-        rows = conn.execute('''SELECT category, SUM(total) AS total FROM expenses WHERE month = ? AND strftime('%Y', date) = ? AND status = 'pending' GROUP BY category''', (month.upper(), str(year))).fetchall()
-        return {r['category']: float(r['total']) for r in rows}
+        try:
+            conn = self._get_connection()
+            rows = conn.execute('''SELECT category, SUM(total) AS total FROM expenses WHERE month = ? AND strftime('%Y', date) = ? AND status = 'pending' GROUP BY category''', (month.upper(), str(year))).fetchall()
+            return {r['category']: float(r['total']) for r in rows}
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting monthly spending: {e}")
+            return {}
 
     def get_pending_debts(self) -> List[Dict]:
-        conn = self._get_connection()
-        rows = conn.execute("SELECT * FROM expenses WHERE type IN ('Deuda', 'Prestamo') AND status = 'pending' ORDER BY date ASC").fetchall()
-        return [dict(r) for r in rows]
+        try:
+            conn = self._get_connection()
+            rows = conn.execute("SELECT * FROM expenses WHERE type IN ('Deuda', 'Prestamo') AND status = 'pending' ORDER BY date ASC").fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting debts: {e}")
+            return []
 
     def get_weekly_expenses(self, start_date: str, end_date: str) -> List[Dict]:
-        conn = self._get_connection()
-        rows = conn.execute("SELECT * FROM expenses WHERE date BETWEEN ? AND ? AND status = 'pending' ORDER BY date DESC", (start_date, end_date)).fetchall()
-        return [dict(r) for r in rows]
+        try:
+            conn = self._get_connection()
+            rows = conn.execute("SELECT * FROM expenses WHERE date BETWEEN ? AND ? AND status = 'pending' ORDER BY date DESC", (start_date, end_date)).fetchall()
+            return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting weekly expenses: {e}")
+            return []
 
     def get_category_stats(self, category: str) -> Dict:
-        conn = self._get_connection()
-        row = conn.execute("SELECT AVG(total) AS avg, MAX(total) AS max, COUNT(*) AS count FROM expenses WHERE category = ? AND status = 'pending'", (category.upper().strip(),)).fetchone()
-        return {'avg': round(row['avg'] or 0, 2), 'max': round(row['max'] or 0, 2), 'count': row['count'] or 0}
+        try:
+            conn = self._get_connection()
+            row = conn.execute("SELECT AVG(total) AS avg, MAX(total) AS max, COUNT(*) AS count FROM expenses WHERE category = ? AND status = 'pending'", (category.upper().strip(),)).fetchone()
+            return {'avg': round(row['avg'] or 0, 2), 'max': round(row['max'] or 0, 2), 'count': row['count'] or 0}
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting category stats: {e}")
+            return {'avg': 0, 'max': 0, 'count': 0}
 
     def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        conn = self._get_connection()
-        row = conn.execute('SELECT value FROM app_settings WHERE key = ?', (key,)).fetchone()
-        return row['value'] if row else default
+        try:
+            conn = self._get_connection()
+            row = conn.execute('SELECT value FROM app_settings WHERE key = ?', (key,)).fetchone()
+            return row['value'] if row else default
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting setting {key}: {e}")
+            return default
 
     def set_setting(self, key: str, value: str) -> Tuple[bool, str]:
         with self._write_lock:
@@ -226,9 +288,13 @@ class LocalDatabaseManager(BaseDatabaseManager):
             return True, f"Ajuste guardado."
 
     def get_most_frequent_category(self, merchant: str) -> Tuple[Optional[str], Optional[str]]:
-        conn = self._get_connection()
-        row = conn.execute('SELECT category, subcategory, COUNT(*) as count FROM expenses WHERE merchant = ? GROUP BY category, subcategory ORDER BY count DESC LIMIT 1', (merchant.upper().strip(),)).fetchone()
-        return (row['category'], row['subcategory']) if row else (None, None)
+        try:
+            conn = self._get_connection()
+            row = conn.execute('SELECT category, subcategory, COUNT(*) as count FROM expenses WHERE merchant = ? GROUP BY category, subcategory ORDER BY count DESC LIMIT 1', (merchant.upper().strip(),)).fetchone()
+            return (row['category'], row['subcategory']) if row else (None, None)
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting frequent category: {e}")
+            return (None, None)
 
     def add_budget(self, category: str, limit: float) -> Tuple[bool, str]:
         with self._write_lock:
@@ -238,39 +304,55 @@ class LocalDatabaseManager(BaseDatabaseManager):
             return True, f"Presupuesto guardado."
 
     def get_all_settings(self) -> Dict[str, str]:
-        conn = self._get_connection()
-        rows = conn.execute('SELECT key, value FROM app_settings').fetchall()
-        return {r['key']: r['value'] for r in rows}
+        try:
+            conn = self._get_connection()
+            rows = conn.execute('SELECT key, value FROM app_settings').fetchall()
+            return {r['key']: r['value'] for r in rows}
+        except sqlite3.Error as e:
+            self._logger.error(f"Error getting settings: {e}")
+            return {}
 
     def ensure_email_log_table(self):
-        conn = self._get_connection()
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS email_log (
-                message_id   TEXT PRIMARY KEY,
-                subject      TEXT,
-                received_at  TEXT,
-                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expense_id   INTEGER,
-                amount       REAL,
-                merchant     TEXT,
-                status       TEXT
-            )
-        """)
-        conn.commit()
+        with self._write_lock:
+            try:
+                conn = self._get_connection()
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS email_log (
+                        message_id   TEXT PRIMARY KEY,
+                        subject      TEXT,
+                        received_at  TEXT,
+                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expense_id   INTEGER,
+                        amount       REAL,
+                        merchant     TEXT,
+                        status       TEXT
+                    )
+                """)
+                conn.commit()
+            except sqlite3.Error as e:
+                self._logger.error(f"Error creating email log table: {e}")
 
     def is_email_processed(self, message_id: str) -> bool:
-        conn = self._get_connection()
-        row = conn.execute("SELECT 1 FROM email_log WHERE message_id = ?", (message_id,)).fetchone()
-        return row is not None
+        try:
+            conn = self._get_connection()
+            row = conn.execute("SELECT 1 FROM email_log WHERE message_id = ?", (message_id,)).fetchone()
+            return row is not None
+        except sqlite3.Error as e:
+            self._logger.error(f"Error checking email process status: {e}")
+            return False
 
     def log_email(self, message_id: str, subject: str, received_at: str, expense_id, amount, merchant, status):
-        conn = self._get_connection()
-        conn.execute("""
-            INSERT OR REPLACE INTO email_log
-            (message_id, subject, received_at, expense_id, amount, merchant, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (message_id, subject, received_at, expense_id, amount, merchant, status))
-        conn.commit()
+        with self._write_lock:
+            try:
+                conn = self._get_connection()
+                conn.execute("""
+                    INSERT OR REPLACE INTO email_log
+                    (message_id, subject, received_at, expense_id, amount, merchant, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (message_id, subject, received_at, expense_id, amount, merchant, status))
+                conn.commit()
+            except sqlite3.Error as e:
+                self._logger.error(f"Error logging email: {e}")
 
 
 class CloudflareDatabaseManager(BaseDatabaseManager):
@@ -341,6 +423,7 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
             return False
 
     def add_expense(self, data: Dict) -> Tuple[bool, str]:
+        data = _normalize_expense_data(data)
         sql = '''
             INSERT INTO expenses (day, month, week, date, payment_method, category, merchant, subcategory, details, total, type, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

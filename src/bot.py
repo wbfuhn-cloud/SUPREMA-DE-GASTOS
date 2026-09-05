@@ -59,7 +59,7 @@ class ExpenseBot:
         self.paused = False
         
         # Estado temporal para gastos pendientes de confirmación: {chat_id: {data}}
-        self.pending_expenses = {}
+        self.pending_expenses = self._load_pending_expenses()
         
         # Setup Handlers
         start_handler = CommandHandler('start', self.start)
@@ -94,6 +94,25 @@ class ExpenseBot:
             else:
                 logger.error(f"[BOT] Error no manejado: {err}", exc_info=err)
         self.application.add_error_handler(_global_error_handler)
+
+    def _load_pending_expenses(self) -> dict:
+        path = os.path.join("database", "pending_expenses.json")
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Error cargando gastos pendientes: {e}")
+        return {}
+
+    def _save_pending_expenses(self):
+        path = os.path.join("database", "pending_expenses.json")
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.pending_expenses, f, indent=4)
+        except Exception as e:
+            logger.error(f"Error guardando gastos pendientes: {e}")
 
     def run(self):
         logger.info("Bot iniciado con Gemini... Presiona Stop en la GUI para detener.")
@@ -269,6 +288,7 @@ class ExpenseBot:
             
             if target_field:
                 expense_data[target_field] = value
+                self._save_pending_expenses()
                 updated = True
                 
                 # Si cambió la fecha, recalcular derivados
@@ -333,6 +353,7 @@ class ExpenseBot:
                 
                 # Guardar pendiente
                 self.pending_expenses[chat_id] = analysis_result
+                self._save_pending_expenses()
                 
                 # Eliminar mensaje de espera
                 await context.bot.delete_message(chat_id=chat_id, message_id=processing_msg.message_id)
@@ -405,6 +426,7 @@ class ExpenseBot:
                 
                 # Guardar en memoria temporal para confirmación
                 self.pending_expenses[chat_id] = analysis_result
+                self._save_pending_expenses()
                 
                 # Eliminar mensaje de "Procesando..."
                 await context.bot.delete_message(chat_id=chat_id, message_id=processing_msg.message_id)
@@ -553,10 +575,12 @@ class ExpenseBot:
             await query.edit_message_text(text=final_text, parse_mode='Markdown')
             # Limpiar estado
             del self.pending_expenses[chat_id]
+            self._save_pending_expenses()
 
         elif data == "cancel":
             await query.edit_message_text(text="[X] Operación cancelada. El gasto ha sido descartado.")
             del self.pending_expenses[chat_id]
+            self._save_pending_expenses()
 
         elif data == "ask_subcategory":
             await query.edit_message_text(
@@ -622,16 +646,19 @@ class ExpenseBot:
             # Mapear a nombres más bonitos
             type_map = {'debt': 'Deuda', 'loan': 'Prestamo', 'normal': 'Normal'}
             self.pending_expenses[chat_id]['type'] = type_map.get(new_type, new_type)
+            self._save_pending_expenses()
             await self.send_confirmation_message(chat_id, context, self.pending_expenses[chat_id])
 
         elif data.startswith("set_cat_"):
             new_cat = data.split("_", 2)[2]
             self.pending_expenses[chat_id]['category'] = new_cat
+            self._save_pending_expenses()
             await self.send_confirmation_message(chat_id, context, self.pending_expenses[chat_id])
             
         elif data.startswith("set_method_"):
             new_method = data.split("_", 2)[2]
             self.pending_expenses[chat_id]['payment_method'] = new_method
+            self._save_pending_expenses()
             await self.send_confirmation_message(chat_id, context, self.pending_expenses[chat_id])
 
 
