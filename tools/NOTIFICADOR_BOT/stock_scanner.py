@@ -105,8 +105,8 @@ def _get_usd_mxn() -> float:
                 valid = [c for c in closes if c is not None]
                 if valid:
                     return float(valid[-1])
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"_get_vix_via_chart error: {e}")
     return 20.5  # fallback actualizado (2026)
 
 # ── Constantes ────────────────────────────────────────────────────────────────
@@ -142,7 +142,8 @@ def save_to_cache(ticker, data, kind):
         init_cache()
         with open(_cache_path(ticker, kind), 'wb') as f:
             pickle.dump({'ts': datetime.now(), 'data': data}, f, protocol=4)
-    except Exception: pass
+    except Exception as e:
+        logger.debug(f"save_to_cache({ticker}): {e}")
 
 def load_from_cache(ticker, kind):
     try:
@@ -150,7 +151,9 @@ def load_from_cache(ticker, kind):
         if not p.exists(): return None
         with open(p, 'rb') as f:
             return pickle.load(f)['data']
-    except Exception: return None
+    except Exception as e:
+        logger.debug(f"load_from_cache({ticker}): {e}")
+        return None
 
 def is_cache_valid(ticker, kind, max_hours=6):
     try:
@@ -159,7 +162,9 @@ def is_cache_valid(ticker, kind, max_hours=6):
         with open(p, 'rb') as f:
             ts = pickle.load(f)['ts']
         return (datetime.now() - ts) < timedelta(hours=max_hours)
-    except: return False
+    except Exception as e:
+        logger.debug(f"is_cache_valid({ticker}): {e}")
+        return False
 
 def get_cache_stats():
     try:
@@ -171,7 +176,9 @@ def get_cache_stats():
             'total_files':   len(files),
             'total_size_mb': round(size / 1_048_576, 2)
         }
-    except: return {'total_tickers': 0, 'total_files': 0, 'total_size_mb': 0}
+    except Exception as e:
+        logger.debug(f"get_cache_stats error: {e}")
+        return {'total_tickers': 0, 'total_files': 0, 'total_size_mb': 0}
 
 def clear_cache(older_than_hours=None):
     deleted = 0
@@ -187,8 +194,10 @@ def clear_cache(older_than_hours=None):
                             ts = pickle.load(fp)['ts']
                         if (datetime.now() - ts) > timedelta(hours=older_than_hours):
                             f.unlink(); deleted += 1
-                except: f.unlink(); deleted += 1
-    except: pass
+                except Exception:
+                    f.unlink(); deleted += 1
+    except Exception as e:
+        logger.debug(f"clear_cache error: {e}")
     return deleted
 
 # ── Caché de listas de tickers ────────────────────────────────────────────────
@@ -197,7 +206,8 @@ def _load_ticker_cache():
         if TICKER_CACHE.exists():
             with open(TICKER_CACHE, 'rb') as f:
                 return pickle.load(f)
-    except: pass
+    except Exception as e:
+        logger.debug(f"_load_ticker_cache error: {e}")
     return {}
 
 def _save_ticker_cache(data):
@@ -205,7 +215,8 @@ def _save_ticker_cache(data):
         init_cache()
         with open(TICKER_CACHE, 'wb') as f:
             pickle.dump(data, f, protocol=4)
-    except: pass
+    except Exception as e:
+        logger.debug(f"_save_ticker_cache error: {e}")
 
 def get_cached_ticker_list(name, fn, max_hours=24):
     cache = _load_ticker_cache()
@@ -340,13 +351,23 @@ def calculate_composite_score(df: pd.DataFrame, info: dict) -> dict:
     if bb_l > 0 and price <= bb_l: score += 10 * w('bb_oversold', 1.0)
     if bb_u > 0 and price >= bb_u: score -= 15 * w('bb_overbought', 1.0) # Penalización adaptativa
 
+    # Retornar total e indicadores activos
     total = min(max(score, 0), 100)
+    
+    active_ind = []
+    if 30 <= rsi <= 55: active_ind.append("rsi_optimal")
+    if price > sma50 > sma200: active_ind.append("trend_sma")
+    if macd > sig and hist > 0: active_ind.append("macd_bullish")
+    if avg_vol > 2_000_000: active_ind.append("volume_high")
+    if bb_l > 0 and price <= bb_l: active_ind.append("bb_oversold")
+
     return {
         'score_total': total,
         'score_tecnico': min(rsi, 40),
         'score_fundamental': 0,
         'score_liquidez': min(int(avg_vol / 200_000), 20),
-        'etiqueta': _score_label(total)
+        'etiqueta': _score_label(total),
+        'active_indicators': active_ind
     }
 
 # ── Régimen de mercado (directo a Yahoo v8) ──────────────────────────────────
@@ -476,10 +497,35 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             else:
                 note = warning + ' | ' + note
 
+        # Predicción de Machine Learning
+        ml_score = scores['score_total']
+        ml_conf = "HEURÍSTICO"
+        try:
+            from ml_predictor import get_ml_predictor
+            predictor = get_ml_predictor()
+            ml_score, proba_win, ml_conf = predictor.predict_score({
+                'score': scores['score_total'],
+                'rsi': rsi,
+                'macd': macd,
+                'macd_signal': macd_sig,
+                'macd_hist': macd_hist,
+                'price_at_rec': price,
+                'bb_upper': bb_u,
+                'bb_lower': bb_l,
+                'vol_ratio': vol_ratio,
+                'volatility_pct': vol_pct / 100.0,
+                'market_cap': info.get('marketCap', 0) or 0,
+                'active_indicators': scores.get('active_indicators', [])
+            })
+        except Exception as e:
+            logger.debug(f"ML prediction error for {ticker}: {e}")
+
         return {
             'Ticker':           ticker,
             'Price':            round(price, 2),
             'Score':            scores['score_total'],
+            'ML_Score':         ml_score,
+            'ML_Confidence':    ml_conf,
             'Is_Leveraged':     is_leveraged,
             'Viabilidad':       scores['etiqueta'],
             'Score_Tech':       scores['score_tecnico'],

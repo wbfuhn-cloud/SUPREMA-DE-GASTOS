@@ -2,6 +2,28 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.1.0] — 2026-09-05 13:17
+### AGREGAR
+- `tools/NOTIFICADOR_BOT/ml_predictor.py`:
+  - Se implementó un modelo supervisado de Machine Learning (`GradientBoostingClassifier`) entrenado sobre 4,001 muestras históricas de `learner.db`.
+  - Extrae e ingenia 18 características clave (RSI, MACD, Posición en Bollinger Bands, Volatilidad, Ratio de Volumen, Log Market Cap, Indicadores activos).
+  - Precisión validada: **33.69%** (vs 15.5% baseline) y AUC: **74.78%**.
+- `SPEC.md`: Especificación técnica formal bajo metodología Spec-Driven Development (SDD).
+
+### CORREGIR / REFACTORIZAR
+- `tools/NOTIFICADOR_BOT/recommendation_learner.py`:
+  - Se eliminó la vulnerabilidad de inyección SQL en la función `has_recent_alert` utilizando parametrización nativa en SQLite.
+- `tools/NOTIFICADOR_BOT/stock_scanner.py`:
+  - Se eliminaron 8 excepciones silenciosas (`except: pass`) sustituyéndolas por captura de excepciones específicas y logging estructurado.
+  - Se integró la predicción `ML_Score` y el nivel de confianza (`ALTA`, `MEDIA`, `BAJA`).
+- `tools/NOTIFICADOR_BOT/config_manager.py`:
+  - Se corrigió el error en la llamada a `json.dump` dentro de `save_config`.
+- `tools/NOTIFICADOR_BOT/portfolio_analyzer.py`:
+  - Se eliminó la duplicación de código en `_get_usd_mxn` y `LEVERAGED_ETFS`.
+- `src/server.py` y `tools/NOTIFICADOR_BOT/app.js`:
+  - Se expusieron los endpoints `/api/ml/status` y `/api/ml/retrain`.
+  - Se añadió la métrica `ML Score` en el panel de detalles del frontend.
+
 ---
 
 ## [v2.0.2] — 2026-09-05 12:55

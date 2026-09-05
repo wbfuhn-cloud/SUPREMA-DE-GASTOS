@@ -34,7 +34,9 @@ class BaseDatabaseManager:
     def get_most_frequent_category(self, merchant: str) -> Tuple[Optional[str], Optional[str]]: pass
     def add_budget(self, category: str, limit: float) -> Tuple[bool, str]: pass
     def get_all_settings(self) -> Dict[str, str]: pass
-
+    def ensure_email_log_table(self): pass
+    def is_email_processed(self, message_id: str) -> bool: pass
+    def log_email(self, message_id: str, subject: str, received_at: str, expense_id, amount, merchant, status): pass
 
 class LocalDatabaseManager(BaseDatabaseManager):
     """Implementación original con SQLite local."""
@@ -240,6 +242,36 @@ class LocalDatabaseManager(BaseDatabaseManager):
         rows = conn.execute('SELECT key, value FROM app_settings').fetchall()
         return {r['key']: r['value'] for r in rows}
 
+    def ensure_email_log_table(self):
+        conn = self._get_connection()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS email_log (
+                message_id   TEXT PRIMARY KEY,
+                subject      TEXT,
+                received_at  TEXT,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expense_id   INTEGER,
+                amount       REAL,
+                merchant     TEXT,
+                status       TEXT
+            )
+        """)
+        conn.commit()
+
+    def is_email_processed(self, message_id: str) -> bool:
+        conn = self._get_connection()
+        row = conn.execute("SELECT 1 FROM email_log WHERE message_id = ?", (message_id,)).fetchone()
+        return row is not None
+
+    def log_email(self, message_id: str, subject: str, received_at: str, expense_id, amount, merchant, status):
+        conn = self._get_connection()
+        conn.execute("""
+            INSERT OR REPLACE INTO email_log
+            (message_id, subject, received_at, expense_id, amount, merchant, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (message_id, subject, received_at, expense_id, amount, merchant, status))
+        conn.commit()
+
 
 class CloudflareDatabaseManager(BaseDatabaseManager):
     """Implementación conectada a Cloudflare D1 vía HTTP REST API."""
@@ -424,6 +456,33 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
     def get_all_settings(self) -> Dict[str, str]:
         res = self._query('SELECT key, value FROM app_settings')
         return {r['key']: r['value'] for r in res}
+
+    def ensure_email_log_table(self):
+        sql = """
+            CREATE TABLE IF NOT EXISTS email_log (
+                message_id   TEXT PRIMARY KEY,
+                subject      TEXT,
+                received_at  TEXT,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expense_id   INTEGER,
+                amount       REAL,
+                merchant     TEXT,
+                status       TEXT
+            )
+        """
+        self._execute(sql)
+
+    def is_email_processed(self, message_id: str) -> bool:
+        res = self._query("SELECT 1 FROM email_log WHERE message_id = ?", [message_id])
+        return len(res) > 0
+
+    def log_email(self, message_id: str, subject: str, received_at: str, expense_id, amount, merchant, status):
+        sql = """
+            INSERT OR REPLACE INTO email_log
+            (message_id, subject, received_at, expense_id, amount, merchant, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """
+        self._execute(sql, [message_id, subject, received_at, expense_id, amount, merchant, status])
 
 # ---
 # Factoría inteligente que determina qué BD usar basándose en el .env

@@ -2,31 +2,15 @@
 portfolio_analyzer.py — Analiza tickers del portafolio con veredicto claro.
 Usa la API directa de Yahoo v8 (sin yfinance) para evitar errores 401.
 """
-import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
-
+from pathlib import Path
 import pandas as pd
+
 from stock_scanner import (
     _fetch_history_raw, _fetch_quote_batch, _SESSION,
-    calculate_rsi, calculate_macd, calculate_bollinger_bands
+    calculate_rsi, calculate_macd, calculate_bollinger_bands,
+    _get_usd_mxn, LEVERAGED_ETFS
 )
 
-
-def _get_usd_mxn() -> float:
-    """Obtiene tipo de cambio USD/MXN directamente de Yahoo."""
-    try:
-        df = _fetch_history_raw('USDMXN=X', period='5d')
-        if df is not None and not df.empty:
-            return float(df['Close'].iloc[-1])
-    except: pass
-    return 18.5  # fallback
-
-
-LEVERAGED_ETFS = frozenset([
-    'SOXL', 'TQQQ', 'FAS', 'TNA', 'UPRO', 'SPXL', 'FNGU', 'LABU', 'NUGT',
-    'SOXS', 'SQQQ', 'FAZ', 'TZA', 'SPXU', 'FNGD', 'LABD', 'DUST',
-    'SSO', 'QLD', 'UDOW', 'DDM', 'SDS', 'QID', 'DXD',
-])
 
 def _is_leveraged_etf(ticker: str) -> bool:
     return ticker.upper() in LEVERAGED_ETFS

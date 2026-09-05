@@ -200,38 +200,13 @@ class EmailReader:
         self._ensure_email_log_table()
 
     def _ensure_email_log_table(self):
-        conn = sqlite3.connect(self.db.db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS email_log (
-                message_id   TEXT PRIMARY KEY,
-                subject      TEXT,
-                received_at  TEXT,
-                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expense_id   INTEGER,
-                amount       REAL,
-                merchant     TEXT,
-                status       TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
+        self.db.ensure_email_log_table()
 
     def _is_already_processed(self, message_id):
-        conn = sqlite3.connect(self.db.db_path)
-        cur = conn.execute("SELECT 1 FROM email_log WHERE message_id = ?", (message_id,))
-        found = cur.fetchone() is not None
-        conn.close()
-        return found
+        return self.db.is_email_processed(message_id)
 
     def _log_email(self, message_id, subject, received_at, expense_id, amount, merchant, status):
-        conn = sqlite3.connect(self.db.db_path)
-        conn.execute("""
-            INSERT OR REPLACE INTO email_log
-            (message_id, subject, received_at, expense_id, amount, merchant, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (message_id, subject, received_at, expense_id, amount, merchant, status))
-        conn.commit()
-        conn.close()
+        self.db.log_email(message_id, subject, received_at, expense_id, amount, merchant, status)
 
     def _graph_get(self, token, url, params=None):
         headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}

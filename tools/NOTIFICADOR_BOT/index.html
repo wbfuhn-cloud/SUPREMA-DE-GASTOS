@@ -243,6 +243,31 @@
                         </table>
                     </div>
                 </div>
+                <div class="tab-content" id="prices-tab">
+                    <div class="portfolio-controls glass-panel" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
+                        <h3 style="margin:0"><i class="fa-solid fa-microscope"></i> Historial de Hallazgos</h3>
+                        <button id="btn-refresh-prices" class="btn primary-btn sm-btn"><i class="fa-solid fa-sync"></i> Actualizar</button>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table" id="prices-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Tienda</th>
+                                    <th>Producto Buscado</th>
+                                    <th>Hallazgo (Nombre)</th>
+                                    <th>Precio</th>
+                                    <th>Descuento %</th>
+                                    <th>Link</th>
+                                </tr>
+                            </thead>
+                            <tbody id="prices-tbody">
+                                <tr class="empty-row"><td colspan="7">Cargando historial de precios...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- Right Panel: Details & Risk -->
@@ -292,30 +317,6 @@
                         <div style="margin-top: 10px;">
                             <button id="btn-feedback-bad" class="btn danger-btn sm-btn w-100" style="display: none; width: 100%;"><i class="fa-solid fa-thumbs-down"></i> Reportar como mala</button>
                         </div>
-                    </div>
-                    <div class="tab-content" id="prices-tab">
-                    <div class="portfolio-controls glass-panel" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
-                        <h3 style="margin:0"><i class="fa-solid fa-microscope"></i> Historial de Hallazgos</h3>
-                        <button id="btn-refresh-prices" class="btn primary-btn sm-btn"><i class="fa-solid fa-sync"></i> Actualizar</button>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="data-table" id="prices-table">
-                            <thead>
-                                <tr>
-                                    <th>Fecha</th>
-                                    <th>Tienda</th>
-                                    <th>Producto Buscado</th>
-                                    <th>Hallazgo (Nombre)</th>
-                                    <th>Precio</th>
-                                    <th>Descuento %</th>
-                                    <th>Link</th>
-                                </tr>
-                            </thead>
-                            <tbody id="prices-tbody">
-                                <tr class="empty-row"><td colspan="7">Cargando historial de precios...</td></tr>
-                            </tbody>
-                        </table>
                     </div>
                 </div>
             </aside>

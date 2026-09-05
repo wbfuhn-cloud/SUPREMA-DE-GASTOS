@@ -34,6 +34,7 @@ try:
     from config_manager import ConfigManager  # type: ignore
     from portfolio_analyzer import analyze_portfolio  # type: ignore
     from recommendation_learner import get_learner  # type: ignore
+    from ml_predictor import get_ml_predictor  # type: ignore
 except ImportError as e:
     visor_import_error = str(e)
     logger.error(f"Error importando módulos de VISOR: {e}")
@@ -43,6 +44,7 @@ except ImportError as e:
     ConfigManager = None  # type: ignore
     analyze_portfolio = None  # type: ignore
     get_learner = None # type: ignore
+    get_ml_predictor = None # type: ignore
 
 config_mgr = ConfigManager() if ConfigManager is not None else None
 
@@ -714,6 +716,26 @@ def learner_feedback():
     
     get_learner().submit_user_feedback(ticker, feedback)
     return jsonify({'status': 'ok', 'message': 'Feedback registrado'})
+
+
+# ── Machine Learning (Predictor) ─────────────────────────────────────────────
+@app.route('/api/ml/status', methods=['GET'])
+def ml_status():
+    if not get_ml_predictor:
+        return jsonify({'status': 'error', 'message': 'ML Predictor no disponible'}), 503
+    return jsonify({'status': 'ok', 'ml': get_ml_predictor().get_status()})
+
+
+@app.route('/api/ml/retrain', methods=['POST'])
+def ml_retrain():
+    if not get_ml_predictor:
+        return jsonify({'status': 'error', 'message': 'ML Predictor no disponible'}), 503
+    try:
+        metrics = get_ml_predictor().train_model()
+        return jsonify({'status': 'ok', 'metrics': metrics})
+    except Exception as e:
+        logger.error(f"Error reentrenando modelo ML: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/api/cache/stats', methods=['GET'])

@@ -95,10 +95,10 @@ class ConfigManager:
         """Guarda configuración actual a archivo"""
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.config, indent=4, fp=f)
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
             return True
         except Exception as e:
-            print(f"Error al guardar configuración: {e}")
+            logger.error(f"Error al guardar configuración: {e}")
             return False
     
     def get_filters(self):

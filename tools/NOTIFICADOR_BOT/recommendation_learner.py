@@ -583,11 +583,12 @@ class RecommendationDB:
         """Verifica si ya se envió una alerta reciente del mismo tipo para este ticker."""
         conn = self._get_conn()
         try:
-            cursor = conn.execute(f"""
+            time_modifier = f"-{int(hours * 60)} minutes"
+            cursor = conn.execute("""
                 SELECT COUNT(*) c FROM live_alerts
                 WHERE ticker=? AND signal_type=? 
-                  AND sent_at >= datetime('now', '-{int(hours * 60)} minutes')
-            """, (ticker, signal_type))
+                  AND sent_at >= datetime('now', ?)
+            """, (ticker, signal_type, time_modifier))
             return cursor.fetchone()['c'] > 0
         except Exception as e:
             logger.error(f"Error comprobando alerta reciente para {ticker}: {e}")

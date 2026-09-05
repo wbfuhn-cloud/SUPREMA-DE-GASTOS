@@ -11,3 +11,5 @@ beautifulsoup4
 msal
 httpx
 pandas
+scikit-learn
+joblib

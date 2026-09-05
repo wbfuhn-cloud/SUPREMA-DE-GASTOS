@@ -196,6 +196,17 @@ async function loadLearnerStats() {
             document.getElementById('ai-verified').textContent = data.stats.verified;
             document.getElementById('ai-adjustments').textContent = data.stats.total_adjustments;
         }
+
+        // Consultar estado de Machine Learning
+        const mlRes = await fetch(`${API_URL}/ml/status`);
+        const mlData = await mlRes.json();
+        if (mlData.status === 'ok' && mlData.ml && mlData.ml.trained) {
+            const metrics = mlData.ml.metrics;
+            const mlAccEl = document.getElementById('ai-accuracy');
+            if (mlAccEl && metrics.full_precision) {
+                mlAccEl.title = `Modelo ML GradientBoosting: ${metrics.samples_total} muestras | AUC: ${metrics.auc_score}%`;
+            }
+        }
     } catch (e) {
         console.error("Error loading learner stats", e);
     }
@@ -633,10 +644,10 @@ function selectTicker(row, trElement) {
             </div>
             ${row.Is_Leveraged ? '<div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#ef4444;"><strong>ADVERTENCIA:</strong> ETF apalancado. El analisis tecnico clasico NO es aplicable. Estos instrumentos tienen decaimiento estructural por diseno y NO son para hold.</div>' : ''}
             <div class="detail-grid">
-            <div class="detail-grid">
                 <div class="detail-item"><span class="label">Precio USD</span><span class="val">$${row.Price.toFixed(2)}</span></div>
                 <div class="detail-item"><span class="label">Precio MXN</span><span class="val" style="color:var(--success-color)">$${row.Price_MXN?.toFixed(2) || 'N/A'}</span></div>
-                <div class="detail-item"><span class="label">Score Total</span><span class="val" style="color:var(--primary-color)">${row.Score}/100</span></div>
+                <div class="detail-item"><span class="label">Score Heurístico</span><span class="val" style="color:var(--primary-color)">${row.Score}/100</span></div>
+                <div class="detail-item"><span class="label">ML Score (IA)</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Score !== undefined ? row.ML_Score : row.Score}/100 <small style="font-size:10px;opacity:0.8;">(${row.ML_Confidence || 'ML'})</small></span></div>
             </div>
         </div>
         
