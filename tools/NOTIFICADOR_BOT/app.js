@@ -512,7 +512,91 @@ function getBadgeClass(viability) {
     if (viability.includes("EXCELENTE")) return "alta";
     if (viability.includes("BUENA")) return "moderado";
     if (viability.includes("MODERADA")) return "neutro";
-    return "evitar";
+let currentViewMode = 'cards';
+
+function switchViewMode(mode) {
+    currentViewMode = mode;
+    const btnCards = document.getElementById('btn-view-cards');
+    const btnTable = document.getElementById('btn-view-table');
+    const cardsVolContainer = document.getElementById('volatility-cards-container');
+    const tableVolContainer = document.getElementById('volatility-table-container');
+    const cardsGemsContainer = document.getElementById('gems-cards-container');
+    const tableGemsContainer = document.getElementById('gems-table-container');
+
+    if (btnCards) btnCards.classList.toggle('active', mode === 'cards');
+    if (btnTable) btnTable.classList.toggle('active', mode === 'table');
+
+    if (cardsVolContainer && tableVolContainer) {
+        cardsVolContainer.style.display = (mode === 'cards') ? 'grid' : 'none';
+        tableVolContainer.style.display = (mode === 'table') ? 'block' : 'none';
+    }
+    if (cardsGemsContainer && tableGemsContainer) {
+        cardsGemsContainer.style.display = (mode === 'cards') ? 'grid' : 'none';
+        tableGemsContainer.style.display = (mode === 'table') ? 'block' : 'none';
+    }
+
+    renderTables();
+}
+
+function renderGBMCards(container, items) {
+    if (!container) return;
+    container.innerHTML = "";
+    if (!items || items.length === 0) {
+        container.innerHTML = `<div class="placeholder-text" style="grid-column: 1/-1; padding: 40px; text-align: center;">No hay datos para mostrar en este escaneo.</div>`;
+        return;
+    }
+
+    items.forEach(row => {
+        const card = document.createElement("div");
+        card.className = "gbm-stock-card";
+        card.onclick = () => selectTicker(row, card);
+        
+        const badgeClass = getBadgeClass(row.Viabilidad);
+        const vol = row.Volatility_Percent ? `${row.Volatility_Percent.toFixed(2)}%` : '0%';
+        const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
+        const aiConf = row.AI_Confidence ? `${row.AI_Confidence.toFixed(0)}%` : 'N/A';
+        const aiConfClass = (row.AI_Confidence > 75) ? 'alta' : (row.AI_Confidence > 50) ? 'media' : 'baja';
+
+        card.innerHTML = `
+            <div class="gbm-card-header">
+                <div>
+                    <div class="gbm-ticker">${row.Ticker}${levWarning}</div>
+                    <div class="gbm-company">${row.Nombre || row.Category || 'Acción / Asset'}</div>
+                </div>
+                <div class="gbm-price-block">
+                    <div class="gbm-price">$${row.Price.toFixed(2)}</div>
+                    <div class="gbm-change ${(row.Volatility_Percent || 0) >= 0 ? 'pos' : 'neg'}">
+                        ${(row.Volatility_Percent || 0) >= 0 ? '▲' : '▼'} ${vol}
+                    </div>
+                </div>
+            </div>
+
+            <div class="gbm-card-metrics">
+                <div class="gbm-metric-item">
+                    <span>Viabilidad</span>
+                    <span><span class="badge ${badgeClass}">${row.Viabilidad}</span></span>
+                </div>
+                <div class="gbm-metric-item">
+                    <span>Confianza IA</span>
+                    <span><span class="ml-confidence-pill ${aiConfClass}">${aiConf}</span></span>
+                </div>
+                <div class="gbm-metric-item">
+                    <span>RSI</span>
+                    <span>${row.RSI || 'N/A'}</span>
+                </div>
+                <div class="gbm-metric-item">
+                    <span>ATR (MXN)</span>
+                    <span>$${row.ATR_MXN?.toFixed(2) || '0'}</span>
+                </div>
+            </div>
+
+            <div style="font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 4px; border-top: 1px solid var(--glass-border);">
+                <i class="fa-solid fa-circle-info" style="color: #0052FF;"></i> ${row.Nota || 'Sugerencia de entrada IA'}
+            </div>
+        `;
+
+        container.appendChild(card);
+    });
 }
 
 function renderTables() {
@@ -546,6 +630,9 @@ function renderTables() {
         return (b.Volatility_Percent || 0) - (a.Volatility_Percent || 0);
     }).slice(0, 100);
     
+    // Render GBM Cards
+    renderGBMCards(document.getElementById('volatility-cards-container'), volSorted);
+
     // Alertas Críticas (TSLA)
     updateTslaMonitor();
     if (volSorted.length === 0) {
@@ -597,6 +684,7 @@ function renderTables() {
     }).sort((a,b) => (b.Vol_Ratio || 0) - (a.Vol_Ratio || 0)).slice(0, 50);
     
     console.log("Gemas encontradas:", gems.length);
+    renderGBMCards(document.getElementById('gems-cards-container'), gems);
     
     if (gems.length === 0) {
         gemsTableBody.innerHTML = `<tr class="empty-row"><td colspan="7">No se encontraron gemas en esta búsqueda.</td></tr>`;

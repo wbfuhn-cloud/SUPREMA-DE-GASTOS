@@ -2,6 +2,18 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.3.0] — 2026-09-05 23:51
+### AGREGAR / REDISEÑO DE UI (GBM.COM STYLE)
+- `tools/NOTIFICADOR_BOT/style.css`:
+  - Se implementó el sistema de diseño estilo **GBM.com** con fuentes `Plus Jakarta Sans`, fondo obsidian medianoche (`#07090E`), tarjetas con curvatura súper suave (`rounded-3xl` / `24px`), sombras profundas de alta gama y acentos azul eléctrico (`#0052FF`).
+- `tools/NOTIFICADOR_BOT/index.html`:
+  - Se rediseñó el header del escáner VISOR/IA con la barra de navegación flotante tipo píldora, la insignia de estado del mercado y el panel del modelo predictivo ML.
+  - Se agregó el selector de vista dual (**Tarjetas GBM** / **Tabla Técnica**).
+- `tools/NOTIFICADOR_BOT/app.js`:
+  - Se añadieron las funciones `switchViewMode` y `renderGBMCards` para construir tarjetas dinámicas de acciones con métricas de viabilidad, RSI, ATR y nivel de confianza IA.
+- `src/templates/dashboard.html`, `details.html` y `transactions.html`:
+  - Se armonizó la barra de navegación superior compartiendo las pestañas en formato píldoras GBM.
+
 ## [v2.2.3] — 2026-09-05 22:08
 ### CORREGIR
 - `src/server.py`:

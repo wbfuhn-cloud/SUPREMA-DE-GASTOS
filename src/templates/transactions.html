@@ -164,6 +164,14 @@ html.dark header {
             <span id="visible-count">0</span> registros
         </span>
     </div>
+
+    <nav class="hidden md:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-full border border-slate-200 dark:border-slate-800">
+        <a href="/dashboard" class="text-xs font-bold px-4 py-2 rounded-full transition-all text-slate-500 hover:text-slate-900 dark:hover:text-white">Dashboard</a>
+        <a href="/transactions" class="text-xs font-extrabold px-4 py-2 rounded-full transition-all bg-primary text-white shadow-md shadow-primary/20">Transacciones</a>
+        <a href="/details" class="text-xs font-bold px-4 py-2 rounded-full transition-all text-slate-500 hover:text-slate-900 dark:hover:text-white">Analíticos</a>
+        <a href="/bolsa" class="text-xs font-bold px-4 py-2 rounded-full transition-all text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>Inversiones IA</a>
+    </nav>
+
     <button id="theme-btn" onclick="toggleTheme()" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400">
         <span class="material-symbols-outlined">dark_mode</span>
     </button>
