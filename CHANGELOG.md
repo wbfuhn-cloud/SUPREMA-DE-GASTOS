@@ -4,6 +4,18 @@ Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
 ---
 
+## [v2.0.2] — 2026-09-05 12:55
+### AGREGAR
+- `autorizar_correo.bat`:
+  - Se creó un nuevo script (acceso directo) para autorizar manualmente la lectura de correos desde nuevas computadoras.
+  - **Motivo**: Al cambiar de computadora, el token de sesión (`.token_cache.json`) no se copia por seguridad. Como el sistema intenta abrir el navegador desde un proceso en segundo plano en la interfaz, esto puede fallar o no ser visible. Este script permite hacer el proceso de autorización OAuth2 de forma manual, visible e interactiva.
+
+## [v2.0.1] — 2026-09-05 10:20
+### CORREGIR
+- `iniciar.bat`:
+  - Se agregó `pandas` a la lista de dependencias que se verifican en la línea 38.
+  - **Motivo**: Asegurar que si falta `pandas` en el entorno, `iniciar.bat` reinstale las dependencias y evite errores al abrir el módulo `/bolsa`.
+
 ## [v2.0.0] — 2026-09-05 05:56
 ### AGREGAR / MODIFICAR
 - **Migración a la Nube (Cloudflare D1)**:

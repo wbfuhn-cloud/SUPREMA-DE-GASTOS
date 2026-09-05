@@ -35,7 +35,7 @@ echo.
 :: Verificar dependencias
 echo [0/1] Verificando dependencias...
 if not exist ".deps_ok" (
-    "%PYTHON%" -c "import flask, bs4, httpx" 2>&1
+    "%PYTHON%" -c "import flask, bs4, httpx, pandas" 2>&1
     if %ERRORLEVEL% NEQ 0 (
         echo [!] Instalando dependencias faltantes...
         "%PYTHON%" -m pip install -r requirements.txt
