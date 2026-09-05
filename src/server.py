@@ -497,7 +497,8 @@ def details_view():
             return _html_response(cached)
 
         expenses = db_manager.get_all_expenses()
-        html = DetailsViewGenerator.generate_html(expenses)
+        data = DetailsViewGenerator.generate_html(expenses)
+        html = render_template('details.html', **data)
         _set_cached_view('details', html)
         return _html_response(html)
 

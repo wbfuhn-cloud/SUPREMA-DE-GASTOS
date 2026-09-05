@@ -2,6 +2,11 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.2.3] — 2026-09-05 22:08
+### CORREGIR
+- `src/server.py`:
+  - Se corrigió la función `details_view()` añadiendo la llamada `render_template('details.html', **data)`, resolviendo la pantalla en blanco o no renderizada en la sección de Analíticos (`/details`).
+
 ## [v2.2.2] — 2026-09-05 19:49
 ### CORREGIR
 - `src/templates/dashboard.html`:
