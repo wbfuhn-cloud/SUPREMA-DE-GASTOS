@@ -909,3 +909,31 @@ function updateTslaMonitor() {
         </div>
     `;
 }
+
+/* ── Global Theme Toggle ── */
+function toggleTheme() {
+    const html = document.documentElement;
+    const next = html.classList.contains('dark') ? 'light' : 'dark';
+    if (next === 'dark') {
+        html.classList.add('dark');
+        html.classList.remove('light');
+    } else {
+        html.classList.add('light');
+        html.classList.remove('dark');
+    }
+    localStorage.setItem('theme', next);
+    updateThemeIcon(next);
+}
+
+function updateThemeIcon(theme) {
+    const btn = document.getElementById('theme-btn');
+    if (btn) {
+        btn.innerHTML = theme === 'dark' ? '<i class="fa-solid fa-sun" style="font-size: 16px;"></i>' : '<i class="fa-solid fa-moon" style="font-size: 16px;"></i>';
+    }
+}
+
+(function() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.className = savedTheme;
+    updateThemeIcon(savedTheme);
+})();

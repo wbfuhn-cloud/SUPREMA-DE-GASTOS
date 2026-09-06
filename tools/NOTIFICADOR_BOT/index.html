@@ -7,22 +7,29 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/visor/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.className=t;})();</script>
 </head>
 <body>
     <nav class="unified-nav">
         <div class="logo">
-            <div style="width: 34px; height: 34px; background: linear-gradient(135deg, #0052FF, #5631E8); border-radius: 10px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,82,255,0.4);">
+            <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #0052FF, #5631E8); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,82,255,0.4);">
                 <i class="fa-solid fa-chart-line" style="font-size: 16px; color: white;"></i>
             </div>
-            ASISTENTE FINANCIERO <span style="font-size: 11px; background: rgba(0,82,255,0.2); color: #60A5FA; padding: 2px 8px; border-radius: 99px; font-weight: 800; border: 1px solid rgba(0,82,255,0.3);">GBM IA</span>
+            <span>ASISTENTE FINANCIERO</span>
+            <span style="font-size: 11px; background: rgba(0,82,255,0.18); color: #60A5FA; padding: 3px 10px; border-radius: 9999px; font-weight: 800; border: 1px solid rgba(0,82,255,0.3);">GBM IA</span>
         </div>
         <div class="links">
             <a href="/dashboard">Dashboard</a>
             <a href="/transactions">Transacciones</a>
             <a href="/details">Analíticos</a>
-            <a href="/bolsa" class="active">Inversiones</a>
+            <a href="/bolsa" class="active">⚡ Inversiones IA</a>
         </div>
-        <a href="/dashboard" class="back-btn"><i class="fa-solid fa-arrow-left"></i> VOLVER</a>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="theme-btn" onclick="toggleTheme()" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: white; width: 38px; height: 38px; border-radius: 9999px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                <i class="fa-solid fa-sun" style="font-size: 16px;"></i>
+            </button>
+            <a href="/dashboard" class="back-btn"><i class="fa-solid fa-arrow-left"></i> VOLVER</a>
+        </div>
     </nav>
 
     <div class="app-container">

@@ -2,6 +2,13 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.4.2] — 2026-09-06 01:46
+### CORREGIR / DUAL THEME TOGGLE (MODO CLARO Y MODO OSCURO)
+- **Corrección de Conmutador de Temas (`toggleTheme`)**:
+  - Se eliminaron las reglas CSS `!important` estáticas que bloqueaban el cambio de colores y fondos al presionar el botón de tema.
+  - Se implementaron estilos responsivos independientes para `html.dark` (Obsidian Dark `#07090E`) y `html.light` (Minimalist Light `#F8FAFC`) en `dashboard.html`, `transactions.html`, `details.html` e `index.html`.
+  - Se añadió la función `toggleTheme()` en `transactions.html` e `index.html` para alternar fluidamente entre sol y luna ☀️/🌙.
+
 ## [v2.4.1] — 2026-09-06 01:18
 ### AGREGAR / UNIFICACIÓN DE UI EN TODO EL PROYECTO (ESTILO GBM.COM)
 - **Tema Obsidian Dark Predeterminado en Todo el Proyecto**:

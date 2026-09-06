@@ -45,6 +45,17 @@
     --transition-fast: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+html.light, html:not(.dark) {
+    --bg-dark: #F8FAFC;
+    --bg-panel: rgba(255, 255, 255, 0.90);
+    --bg-panel-solid: #FFFFFF;
+    --glass-border: rgba(226, 232, 240, 0.85);
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-muted: #64748B;
+    --shadow-gbm: 0 10px 30px -5px rgba(0, 0, 0, 0.05);
+}
+
 * {
     box-sizing: border-box;
     margin: 0;
