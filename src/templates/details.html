@@ -16,7 +16,7 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
 
     <script id="tailwind-config">
@@ -25,14 +25,15 @@
             theme: {
                 extend: {
                     colors: {
-                        "primary": "#5631E8",
-                        "secondary": "#006c49",
-                        "background": "#f7f9fb",
-                        "surface": "#ffffff",
+                        "primary": "#0052FF",
+                        "primary-hover": "#1D68FF",
+                        "secondary": "#10B981",
+                        "background": "#F8FAFC",
+                        "surface": "#FFFFFF",
                     },
                     fontFamily: {
-                        "body": ["Inter", "sans-serif"],
-                        "heading": ["Hanken Grotesk", "sans-serif"]
+                        "body": ["Plus Jakarta Sans", "Inter", "sans-serif"],
+                        "heading": ["Plus Jakarta Sans", "Hanken Grotesk", "sans-serif"]
                     }
                 }
             }
@@ -41,15 +42,19 @@
 
     <style>
         body { 
-            font-family: 'Inter', sans-serif; 
+            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif; 
             -webkit-font-smoothing: antialiased; 
-            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            background: #F8FAFC;
+            background-image: radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.05) 0px, transparent 50%);
             background-attachment: fixed;
             min-height: 100vh;
         }
 
         html.dark body, .dark body {
-            background: linear-gradient(135deg, #020617 0%, #1e1b4b 50%, #4c1d95 100%) !important;
+            background: #07090E !important;
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.12) 0px, transparent 50%),
+                radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.12) 0px, transparent 50%) !important;
             background-attachment: fixed !important;
         }
 

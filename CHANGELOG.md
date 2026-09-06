@@ -2,6 +2,17 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.4.0] — 2026-09-06 00:13
+### AGREGAR / REDISEÑO INTEGRAL DE UI (ESTILO GBM.COM)
+- **Modo Obsidian Medianoche & Tipografía GBM**:
+  - Se integró la fuente `Plus Jakarta Sans` y `Hanken Grotesk` en todo el sistema.
+  - Se definieron los tokens de color corporativo GBM (`#0052FF` Electric Blue, `#07090E` Obsidian Dark Background, `#F8FAFC` Light Background, `#10B981` Emerald, `#8B5CF6` Púrpura IA).
+- **Corrección de Carga Inmediata en `/bolsa`**:
+  - Se corrigió la carga de persistencia de escaneo de bolsa en `src/server.py` para cargar los resultados incondicionalmente en memoria en `GET /api/scan/results` y `GET /api/scan/status`.
+  - Se actualizó `tools/NOTIFICADOR_BOT/app.js` para invocar `fetchResults()` de forma síncrona en `DOMContentLoaded` y se añadieron guardas de seguridad nula en formateo numérico (`.toFixed`), resolviendo la pantalla en blanco.
+- **Navegación Flotante Unificada (`Floating Pill Nav`)**:
+  - Se estandarizó la barra de navegación en formato píldoras en `src/templates/dashboard.html`, `details.html`, `transactions.html` y `tools/NOTIFICADOR_BOT/index.html`.
+
 ## [v2.3.0] — 2026-09-05 23:51
 ### AGREGAR / REDISEÑO DE UI (GBM.COM STYLE)
 - `tools/NOTIFICADOR_BOT/style.css`:

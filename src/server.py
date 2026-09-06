@@ -105,8 +105,11 @@ def _save_scan_persistence():
     except Exception as e:
         logger.error(f"Error guardando persistencia de escaneo: {e}")
 
-# NOTA: _load_scan_persistence() se llama desde start_background_tasks()
-# para no bloquear el import del módulo.
+# Cargar la persistencia inmediatamente al iniciar el módulo
+try:
+    _load_scan_persistence()
+except Exception as e:
+    logger.error(f"Error cargando persistencia inicial de escaneo: {e}")
 
 
 # ─── Auto-escaneo ────────────────────────────────────────────────────────────
@@ -670,7 +673,8 @@ def stop_scan():
 
 @app.route('/api/scan/status', methods=['GET'])
 def scan_status():
-    # Extraer exchange_rate del primer resultado disponible
+    if not SCAN_STATE['results']:
+        _load_scan_persistence()
     er = SCAN_STATE.get('exchange_rate', 20.5)
     if not SCAN_STATE['results'] and SCAN_STATE.get('exchange_rate') is None:
         pass  # mantener fallback
@@ -690,9 +694,10 @@ def scan_status():
 
 @app.route('/api/scan/results', methods=['GET'])
 def get_results():
+    if not SCAN_STATE['results']:
+        _load_scan_persistence()
     if SCAN_STATE['is_scanning']:
         return jsonify({'status': 'error', 'message': 'Escaneo en progreso'}), 409
-    # Calcular exchange rate desde los resultados
     er = SCAN_STATE.get('exchange_rate', 20.5)
     for r in SCAN_STATE['results']:
         if 'Price_MXN' in r and r.get('Price', 0) > 0:

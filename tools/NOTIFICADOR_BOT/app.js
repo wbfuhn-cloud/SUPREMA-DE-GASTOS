@@ -43,11 +43,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     // 1. Actualizar estadísticas iniciales
     updateCacheStats();
     
-    // 2. Cargar resultados previos inmediatamente si el servidor no está escaneando
+    // 2. Traer inmediatamente los resultados del servidor
+    await fetchResults();
+
+    // 3. Cargar estado de escaneo
     await checkScanStatus();
     
-    // 3. Si el auto-scan está activo en la UI pero el servidor está libre, sugerir inicio
-    if (autoScanChk.checked && !isScanning && allResults.length === 0) {
+    // 4. Si el auto-scan está activo en la UI pero el servidor está libre y sin datos, sugerir inicio
+    if (autoScanChk && autoScanChk.checked && !isScanning && allResults.length === 0) {
         console.log("Auto-Scan activo y sin datos: Iniciando escaneo inicial...");
         startScan();
     }
@@ -648,7 +651,7 @@ function renderTables() {
             const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
             tr.innerHTML = `
                 <td><strong>${row.Ticker}${levWarning}</strong></td>
-                <td>$${row.Price.toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
+                <td>$${(row.Price || 0).toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
                 <td style="color: var(--warning-color); font-weight: bold;">${vol}</td>
                 <td><span class="badge ${badgeClass}">${row.Viabilidad}</span></td>
                 <td>$${row.ATR_MXN?.toFixed(2) || '0'} MXN</td>
@@ -702,11 +705,11 @@ function renderTables() {
             const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
             tr.innerHTML = `
                 <td><strong>${row.Ticker}${levWarning}</strong></td>
-                <td>$${row.Price.toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
+                <td>$${(row.Price || 0).toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
                 <td>$${capStr}</td>
-                <td style="color: var(--accent-color); font-weight: bold;">${row.Vol_Ratio}x</td>
-                <td>${row.MACD.toFixed(2)}</td>
-                <td>${row.RSI}</td>
+                <td style="color: var(--accent-color); font-weight: bold;">${row.Vol_Ratio || 0}x</td>
+                <td>${(row.MACD || 0).toFixed(2)}</td>
+                <td>${row.RSI || 'N/A'}</td>
                 <td><span class="badge ${potClass}">Breakout Setup</span></td>
             `;
             gemsTableBody.appendChild(tr);
@@ -732,10 +735,10 @@ function selectTicker(row, trElement) {
             </div>
             ${row.Is_Leveraged ? '<div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#ef4444;"><strong>ADVERTENCIA:</strong> ETF apalancado. El analisis tecnico clasico NO es aplicable. Estos instrumentos tienen decaimiento estructural por diseno y NO son para hold.</div>' : ''}
             <div class="detail-grid">
-                <div class="detail-item"><span class="label">Precio USD</span><span class="val">$${row.Price.toFixed(2)}</span></div>
+                <div class="detail-item"><span class="label">Precio USD</span><span class="val">$${(row.Price || 0).toFixed(2)}</span></div>
                 <div class="detail-item"><span class="label">Precio MXN</span><span class="val" style="color:var(--success-color)">$${row.Price_MXN?.toFixed(2) || 'N/A'}</span></div>
-                <div class="detail-item"><span class="label">Score Heurístico</span><span class="val" style="color:var(--primary-color)">${row.Score}/100</span></div>
-                <div class="detail-item"><span class="label">ML Score (IA)</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Score !== undefined ? row.ML_Score : row.Score}/100 <small style="font-size:10px;opacity:0.8;">(${row.ML_Confidence || 'ML'})</small></span></div>
+                <div class="detail-item"><span class="label">Score Heurístico</span><span class="val" style="color:var(--primary-color)">${row.Score || 0}/100</span></div>
+                <div class="detail-item"><span class="label">ML Score (IA)</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Score !== undefined ? row.ML_Score : (row.Score || 0)}/100 <small style="font-size:10px;opacity:0.8;">(${row.ML_Confidence || 'ML'})</small></span></div>
             </div>
         </div>
         
@@ -751,8 +754,8 @@ function selectTicker(row, trElement) {
         <div class="detail-section">
             <h3>Indicadores Técnicos</h3>
             <div class="detail-grid">
-                <div class="detail-item"><span class="label">RSI</span><span class="val">${row.RSI}</span></div>
-                <div class="detail-item"><span class="label">MACD</span><span class="val">${row.MACD.toFixed(2)}</span></div>
+                <div class="detail-item"><span class="label">RSI</span><span class="val">${row.RSI || 'N/A'}</span></div>
+                <div class="detail-item"><span class="label">MACD</span><span class="val">${(row.MACD || 0).toFixed(2)}</span></div>
                 <div class="detail-item"><span class="label">MA100</span><span class="val">$${row.MA100}</span></div>
                 <div class="detail-item"><span class="label">MA200</span><span class="val">$${row.MA200}</span></div>
             </div>

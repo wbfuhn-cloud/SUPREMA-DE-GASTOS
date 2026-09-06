@@ -16,24 +16,28 @@ window.ALL_CATEGORIES = {{ cats_json | safe }};
 <script>
 tailwind.config = {
     darkMode: 'class',
-    theme: { extend: { colors: { primary: '#5631E8' } } }
+    theme: { extend: { colors: { primary: '#0052FF' } } }
 }
 </script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0" rel="stylesheet">
 <style>
-:root { --primary: #5631E8; }
+:root { --primary: #0052FF; }
 
 /* ── Fondos por tema ── */
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
-    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    background: #F8FAFC;
+    background-image: radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.05) 0px, transparent 50%);
     background-attachment: fixed;
     min-height: 100vh;
 }
 html.dark body {
-    background: linear-gradient(135deg, #020617 0%, #1e1b4b 50%, #4c1d95 100%) !important;
+    background: #07090E !important;
+    background-image: 
+        radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.12) 0px, transparent 50%),
+        radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.12) 0px, transparent 50%) !important;
     background-attachment: fixed !important;
 }
 
