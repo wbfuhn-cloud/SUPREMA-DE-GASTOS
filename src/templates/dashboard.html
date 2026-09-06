@@ -6,7 +6,7 @@
     <title>ASISTENTE FINANCIERO | Financial Clarity</title>
     
     <!-- Restaurar tema ANTES del CSS para evitar flash -->
-    <script>(function(){var t=localStorage.getItem('theme')||'light';document.documentElement.className=t;})();</script>
+    <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.className=t;})();</script>
     
     <!-- Scripts & Styles -->
     <link rel="preconnect" href="https://cdn.tailwindcss.com">
@@ -538,7 +538,7 @@
 
         // Init Theme on Load
         (function() {
-            const savedTheme = localStorage.getItem('theme') || 'light';
+            const savedTheme = localStorage.getItem('theme') || 'dark';
             document.documentElement.className = savedTheme;
             updateThemeIcon(savedTheme);
         })();

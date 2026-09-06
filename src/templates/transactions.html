@@ -8,7 +8,7 @@
 window.ALL_CATEGORIES = {{ cats_json | safe }};
 /* Tema ANTES que cualquier CSS para evitar flash */
 (function(){
-    var t = localStorage.getItem('theme') || 'light';
+    var t = localStorage.getItem('theme') || 'dark';
     document.documentElement.className = t;
 })();
 </script>

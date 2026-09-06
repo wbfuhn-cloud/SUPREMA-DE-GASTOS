@@ -6,7 +6,7 @@
     <title>Analíticos | ASISTENTE FINANCIERO</title>
     
     <!-- Restaurar tema ANTES del CSS para evitar flash -->
-    <script>(function(){var t=localStorage.getItem('theme')||'light';document.documentElement.className=t;})();</script>
+    <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.className=t;})();</script>
 
     <!-- Scripts & Styles -->
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
@@ -391,7 +391,7 @@
 
         // Init
         (function() {
-            const theme = localStorage.getItem('theme') || 'light';
+            const theme = localStorage.getItem('theme') || 'dark';
             document.documentElement.className = theme;
             updateThemeIcon(theme);
             setTimeout(updateChartsTheme, 100);
