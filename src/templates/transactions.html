@@ -22,53 +22,56 @@ tailwind.config = {
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0" rel="stylesheet">
 <style>
-:root { --primary: #0052FF; }
+:root {
+    --bg-dark: #07090E;
+    --bg-panel: rgba(13, 18, 30, 0.75);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --primary-color: #0052FF;
+    --primary-purple: #5631E8;
+    --btn-radius: 9999px;
+    --card-radius: 24px;
+}
 
-/* ── Fondos por tema ── */
 body {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
     -webkit-font-smoothing: antialiased;
-    background: #F8FAFC;
-    background-image: radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.05) 0px, transparent 50%);
-    background-attachment: fixed;
+    background-color: #07090E !important;
+    background-image: 
+        radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.15) 0px, transparent 50%),
+        radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.15) 0px, transparent 50%) !important;
+    background-attachment: fixed !important;
+    color: #FFFFFF !important;
     min-height: 100vh;
 }
-html.dark body {
-    background: #07090E !important;
-    background-image: 
-        radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.12) 0px, transparent 50%),
-        radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.12) 0px, transparent 50%) !important;
-    background-attachment: fixed !important;
+
+.unified-nav {
+    position: fixed; top: 0; left: 0; width: 100%; height: 68px;
+    background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; z-index: 1000; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-family: 'Plus Jakarta Sans', sans-serif;
 }
+.unified-nav .logo { color: white; font-weight: 800; font-size: 18px; display: flex; align-items: center; gap: 12px; letter-spacing: -0.5px; }
+.unified-nav .links { display: flex; gap: 6px; background: rgba(255,255,255,0.03); padding: 4px; border-radius: 9999px; border: 1px solid rgba(255, 255, 255, 0.08); }
+.unified-nav a { color: #94A3B8; text-decoration: none; font-size: 13px; font-weight: 700; padding: 8px 18px; border-radius: 9999px; transition: all 0.2s ease; }
+.unified-nav a:hover { color: white; background: rgba(255,255,255,0.06); }
+.unified-nav a.active { color: white; background: #0052FF; box-shadow: 0 4px 12px rgba(0, 82, 255, 0.3); }
 
 /* ── Glass card ── */
 .glass-card {
-    backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
-    -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05);
-    border: 1px solid rgba(255,255,255,0.15);
-    box-shadow:
-        0 4px 24px rgba(0,0,0,0.10),
-        inset 0 1px 0 rgba(255,255,255,0.18);
+    background: rgba(13, 18, 30, 0.75) !important;
+    backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 24px !important;
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 82, 255, 0.08) !important;
     position: relative;
     z-index: 10;
-    transition: box-shadow 0.3s ease, border-color 0.3s ease;
-}
-html:not(.dark) .glass-card {
-    background: rgba(255,255,255,0.72);
-    border-color: rgba(255,255,255,0.60);
-}
-html.dark .glass-card {
-    background: rgba(20,27,56,0.62) !important;
-    border-color: rgba(255,255,255,0.07) !important;
-    box-shadow:
-        0 4px 32px rgba(0,0,0,0.35),
-        inset 0 1px 0 rgba(255,255,255,0.06) !important;
+    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 .glass-card:hover {
-    border-color: rgba(86,49,232,0.25);
-}
-html.dark .glass-card:hover {
-    border-color: rgba(129,140,248,0.2) !important;
+    border-color: rgba(0, 82, 255, 0.4) !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 82, 255, 0.2) !important;
 }
 
 /* ── Material icons ── */
@@ -79,21 +82,15 @@ html.dark .glass-card:hover {
 /* ── Form inputs ── */
 .form-input {
     width: 100%;
-    background: rgba(255,255,255,0.5);
-    border: 1px solid rgba(255,255,255,0.4);
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    color: #1e293b;
+    background: rgba(15, 23, 42, 0.8) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 9999px !important;
+    padding: 0.5rem 1rem;
+    color: #FFFFFF !important;
     transition: all 0.2s;
     outline: none;
 }
-.form-input:focus { border-color: #818cf8; box-shadow: 0 0 0 2px rgba(129,140,248,0.2); }
-html.dark .form-input {
-    background: rgba(2,6,23,0.5);
-    border-color: rgba(255,255,255,0.12);
-    color: #e2e8f0;
-}
-html.dark .form-input:focus { border-color: #818cf8; background: rgba(2,6,23,0.7); }
+.form-input:focus { border-color: #0052FF !important; box-shadow: 0 0 0 2px rgba(0, 82, 255, 0.3) !important; }
 
 /* ── Toast ── */
 .toast {
@@ -107,39 +104,25 @@ html.dark .form-input:focus { border-color: #818cf8; background: rgba(2,6,23,0.7
 /* ── Date wrapper ── */
 .date-wrapper {
     display: inline-flex; align-items: center; gap: 0.4rem;
-    cursor: pointer; background: rgba(255,255,255,0.4);
-    border: 1px solid rgba(255,255,255,0.3); border-radius: 0.5rem;
-    padding: 0.4rem 0.65rem; transition: all 0.2s; white-space: nowrap;
+    cursor: pointer; background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 9999px;
+    padding: 0.4rem 0.85rem; transition: all 0.2s; white-space: nowrap;
 }
-.date-wrapper:hover { border-color: #818cf8; background: rgba(129,140,248,0.08); }
-html.dark .date-wrapper { background: rgba(2,6,23,0.4); border-color: rgba(255,255,255,0.1); }
-html.dark .date-wrapper:hover { border-color: #818cf8; }
-.date-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em; color: #1e293b; }
-html.dark .date-label { color: #e2e8f0; }
+.date-wrapper:hover { border-color: #0052FF; }
+.date-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em; color: #FFFFFF; }
 .date-icon { font-size: 14px !important; color: #94a3b8; }
 .date-hidden { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
 
 /* ── Table rows ── */
-.tx-row { transition: background 0.15s; }
-html.dark .tx-row { color: #e2e8f0; }
-html.dark table thead tr { color: #94a3b8 !important; }
+.tx-row { transition: background 0.15s; color: #FFFFFF !important; }
+table thead tr { color: #94a3b8 !important; }
 
-.text-primary { color: var(--primary); }
+.text-primary { color: #0052FF !important; }
 
 /* ── Year separator ── */
 .year-separator td {
-    background: rgba(86,49,232,0.04);
-    border-bottom: 2px solid rgba(86,49,232,0.15);
-}
-html.dark .year-separator td {
-    background: rgba(86,49,232,0.08) !important;
-    border-bottom-color: rgba(86,49,232,0.25) !important;
-}
-
-/* ── Header dark ── */
-html.dark header {
-    background: rgba(15,23,42,0.85) !important;
-    border-color: rgba(255,255,255,0.08) !important;
+    background: rgba(0, 82, 255, 0.1) !important;
+    border-bottom: 2px solid rgba(0, 82, 255, 0.3) !important;
 }
 
 @media (max-width: 768px) {
@@ -147,39 +130,40 @@ html.dark header {
     table, tbody, tr, td { display: block; width: 100%; }
     tr {
         margin-bottom: 1.25rem; border-radius: 1.5rem; padding: 1.25rem;
-        border: 1px solid rgba(255,255,255,0.3);
-        background: rgba(255,255,255,0.7);
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: rgba(15,23,42,0.8) !important;
         backdrop-filter: blur(10px);
     }
-    html.dark tr { background: rgba(15,23,42,0.7) !important; border-color: rgba(255,255,255,0.1) !important; }
     td { padding: 0 !important; border: none !important; }
 }
 </style>
 </head>
-<body class="min-h-screen transition-colors duration-300">
+<body class="min-h-screen text-white">
 
-<header class="fixed top-0 w-full h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 z-50 flex items-center justify-between px-6 transition-colors duration-300">
-    <div class="flex items-center gap-3">
-        <a href="/dashboard" class="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-400 hover:text-[#5631E8] transition-colors">
-            <span class="material-symbols-outlined">arrow_back</span>
-        </a>
-        <span class="font-bold text-lg text-slate-900 dark:text-white">Transacciones</span>
-        <span class="text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-3 py-1 rounded-full ml-2">
-            <span id="visible-count">0</span> registros
+<!-- Header Unified Nav GBM Style -->
+<nav class="unified-nav">
+    <div class="logo">
+        <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #0052FF, #5631E8); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,82,255,0.4);">
+            <span class="material-symbols-outlined" style="font-size: 20px; color: white;">receipt_long</span>
+        </div>
+        <span>ASISTENTE FINANCIERO</span>
+        <span style="font-size: 11px; background: rgba(0,82,255,0.18); color: #60A5FA; padding: 3px 10px; border-radius: 9999px; font-weight: 800; border: 1px solid rgba(0,82,255,0.3);">TRANSACCIONES</span>
+    </div>
+    <div class="links">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/transactions" class="active">Transacciones</a>
+        <a href="/details">Analíticos</a>
+        <a href="/bolsa">⚡ Inversiones IA</a>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <button id="theme-btn" onclick="toggleTheme()" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: white; width: 38px; height: 38px; border-radius: 9999px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+            <span class="material-symbols-outlined" style="font-size: 18px;">light_mode</span>
+        </button>
+        <span style="font-size: 11px; font-weight: 800; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 9999px; color: #94A3B8;">
+            ● <span id="visible-count">0</span> REGISTROS
         </span>
     </div>
-
-    <nav class="hidden md:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-full border border-slate-200 dark:border-slate-800">
-        <a href="/dashboard" class="text-xs font-bold px-4 py-2 rounded-full transition-all text-slate-500 hover:text-slate-900 dark:hover:text-white">Dashboard</a>
-        <a href="/transactions" class="text-xs font-extrabold px-4 py-2 rounded-full transition-all bg-primary text-white shadow-md shadow-primary/20">Transacciones</a>
-        <a href="/details" class="text-xs font-bold px-4 py-2 rounded-full transition-all text-slate-500 hover:text-slate-900 dark:hover:text-white">Analíticos</a>
-        <a href="/bolsa" class="text-xs font-bold px-4 py-2 rounded-full transition-all text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>Inversiones IA</a>
-    </nav>
-
-    <button id="theme-btn" onclick="toggleTheme()" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400">
-        <span class="material-symbols-outlined">dark_mode</span>
-    </button>
-</header>
+</nav>
 
 <main class="pt-24 px-4 md:px-8 max-w-[1400px] mx-auto w-full pb-10">
 

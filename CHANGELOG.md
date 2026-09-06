@@ -2,6 +2,12 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.4.1] — 2026-09-06 01:18
+### AGREGAR / UNIFICACIÓN DE UI EN TODO EL PROYECTO (ESTILO GBM.COM)
+- **Tema Obsidian Dark Predeterminado en Todo el Proyecto**:
+  - Se forzó el tema Obsidian Dark (`#07090E`) con fondo de gradiente radial azul/púrpura eléctrico (`#0052FF`, `#5631E8`) y paneles glassmorphism (`rgba(13, 18, 30, 0.75)`) de forma permanente en todas las vistas: `/dashboard`, `/transactions`, `/details` y `/bolsa`.
+  - Se homogeneizó el componente `<nav class="unified-nav">` en la parte superior de las 4 páginas del sistema.
+
 ## [v2.4.0] — 2026-09-06 00:13
 ### AGREGAR / REDISEÑO INTEGRAL DE UI (ESTILO GBM.COM)
 - **Modo Obsidian Medianoche & Tipografía GBM**:
