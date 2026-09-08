@@ -51,14 +51,21 @@ echo.
 :: 3. Python del entorno virtual
 set "PYTHON=%~dp0.venv\Scripts\python.exe"
 if not exist "%PYTHON%" (
-    echo [ERROR] No se encontro el entorno virtual .venv
-    echo.
-    echo Solucion: Ejecuta estos comandos en la terminal:
-    echo   python -m venv .venv
-    echo   .venv\Scripts\pip install -r requirements.txt
-    echo.
-    pause
-    exit /b 1
+    echo [!] No se encontro el entorno virtual .venv. Creando uno nuevo...
+    python -m venv .venv
+    if errorlevel 1 (
+        echo [ERROR] Fallo la creacion del entorno virtual. Verifica que python este instalado.
+        pause
+        exit /b 1
+    )
+    echo [*] Instalando dependencias desde requirements.txt...
+    "%~dp0.venv\Scripts\python.exe" -m pip install -r requirements.txt
+    if errorlevel 1 (
+        echo [ERROR] Fallo la instalacion de dependencias.
+        pause
+        exit /b 1
+    )
+    echo [OK] Entorno virtual creado exitosamente.
 )
 
 echo [OK] Python encontrado: %PYTHON%
