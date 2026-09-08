@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Transacciones | ASISTENTE FINANCIERO</title>
+<title>Transacciones | Gastos Raccoon</title>
+<script id="categories-data" type="application/json">{{ cats_json | safe }}</script>
 <script>
-window.ALL_CATEGORIES = {{ cats_json | safe }};
+window.ALL_CATEGORIES = JSON.parse(document.getElementById('categories-data').textContent || '[]');
 /* Tema ANTES que cualquier CSS para evitar flash */
 (function(){
     var t = localStorage.getItem('theme') || 'dark';
@@ -21,213 +22,47 @@ tailwind.config = {
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0" rel="stylesheet">
-<style>
-:root {
-    --primary-color: #0052FF;
-    --primary-purple: #5631E8;
-    --btn-radius: 9999px;
-    --card-radius: 24px;
-}
 
-/* ── MODO OSCURO (GBM Obsidian Dark) ── */
-html.dark body {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
-    -webkit-font-smoothing: antialiased;
-    background-color: #07090E !important;
-    background-image: 
-        radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.15) 0px, transparent 50%),
-        radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.15) 0px, transparent 50%) !important;
-    background-attachment: fixed !important;
-    color: #FFFFFF !important;
-    min-height: 100vh;
-}
+    <link rel="stylesheet" href="/static/flux_theme.css?v=2.7.1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script defer src="/static/particle_fluid.js?v=2.7.0"></script>
+    <script defer src="/static/html2canvas.min.js"></script>
+    <script defer src="/static/liquidGL.js?v=2.7.0"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 
-html.dark .unified-nav {
-    position: fixed; top: 0; left: 0; width: 100%; height: 68px;
-    background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 32px; z-index: 1000; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    color: #FFFFFF;
-}
-html.dark .unified-nav .logo-title { color: #FFFFFF !important; }
-html.dark .unified-nav .links { display: flex; gap: 6px; background: rgba(255,255,255,0.03); padding: 4px; border-radius: 9999px; border: 1px solid rgba(255, 255, 255, 0.08); }
-html.dark .unified-nav a { color: #94A3B8; text-decoration: none; font-size: 13px; font-weight: 700; padding: 8px 18px; border-radius: 9999px; transition: all 0.2s ease; }
-html.dark .unified-nav a:hover { color: white; background: rgba(255,255,255,0.06); }
-html.dark .unified-nav a.active { color: white; background: #0052FF; box-shadow: 0 4px 12px rgba(0, 82, 255, 0.3); }
-
-html.dark .glass-card {
-    background: rgba(13, 18, 30, 0.75) !important;
-    backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 24px !important;
-    color: #FFFFFF !important;
-    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 82, 255, 0.08) !important;
-    position: relative;
-    z-index: 10;
-    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
-}
-html.dark .glass-card:hover {
-    border-color: rgba(0, 82, 255, 0.4) !important;
-    box-shadow: 0 25px 50px -12px rgba(0, 82, 255, 0.2) !important;
-}
-
-html.dark .form-input {
-    width: 100%;
-    background: rgba(15, 23, 42, 0.8) !important;
-    border: 1px solid rgba(255,255,255,0.12) !important;
-    border-radius: 9999px !important;
-    padding: 0.5rem 1rem;
-    color: #FFFFFF !important;
-    transition: all 0.2s;
-    outline: none;
-}
-html.dark .form-input:focus { border-color: #0052FF !important; box-shadow: 0 0 0 2px rgba(0, 82, 255, 0.3) !important; }
-
-html.dark .date-wrapper {
-    display: inline-flex; align-items: center; gap: 0.4rem;
-    cursor: pointer; background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(255,255,255,0.12); border-radius: 9999px;
-    padding: 0.4rem 0.85rem; transition: all 0.2s; white-space: nowrap;
-}
-html.dark .date-wrapper:hover { border-color: #0052FF; }
-html.dark .date-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em; color: #FFFFFF; }
-html.dark .tx-row { transition: background 0.15s; color: #FFFFFF !important; }
-html.dark table thead tr { color: #94a3b8 !important; }
-
-/* ── MODO CLARO (GBM Light Minimalist) ── */
-html:not(.dark) body, html.light body {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
-    -webkit-font-smoothing: antialiased;
-    background-color: #F8FAFC !important;
-    background-image: 
-        radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.06) 0px, transparent 50%),
-        radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.04) 0px, transparent 50%) !important;
-    background-attachment: fixed !important;
-    color: #0F172A !important;
-    min-height: 100vh;
-}
-
-html:not(.dark) .unified-nav, html.light .unified-nav {
-    position: fixed; top: 0; left: 0; width: 100%; height: 68px;
-    background: rgba(255, 255, 255, 0.90); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 32px; z-index: 1000; border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    color: #0F172A;
-}
-html:not(.dark) .unified-nav .logo-title, html.light .unified-nav .logo-title { color: #0F172A !important; }
-html:not(.dark) .unified-nav .links, html.light .unified-nav .links { display: flex; gap: 6px; background: rgba(241, 245, 249, 0.9); padding: 4px; border-radius: 9999px; border: 1px solid rgba(226, 232, 240, 0.8); }
-html:not(.dark) .unified-nav a, html.light .unified-nav a { color: #475569; text-decoration: none; font-size: 13px; font-weight: 700; padding: 8px 18px; border-radius: 9999px; transition: all 0.2s ease; }
-html:not(.dark) .unified-nav a:hover, html.light .unified-nav a:hover { color: #0F172A; background: rgba(226, 232, 240, 0.8); }
-html:not(.dark) .unified-nav a.active, html.light .unified-nav a.active { color: white; background: #0052FF; box-shadow: 0 4px 12px rgba(0, 82, 255, 0.25); }
-
-html:not(.dark) .glass-card, html.light .glass-card {
-    background: rgba(255, 255, 255, 0.90) !important;
-    backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-    border: 1px solid rgba(226, 232, 240, 0.9) !important;
-    border-radius: 24px !important;
-    color: #0F172A !important;
-    box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05), 0 0 15px rgba(0, 82, 255, 0.04) !important;
-    position: relative;
-    z-index: 10;
-    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
-}
-html:not(.dark) .glass-card:hover, html.light .glass-card:hover {
-    border-color: rgba(0, 82, 255, 0.3) !important;
-    box-shadow: 0 15px 35px -5px rgba(0, 82, 255, 0.1) !important;
-}
-
-html:not(.dark) .form-input, html.light .form-input {
-    width: 100%;
-    background: rgba(255, 255, 255, 0.9) !important;
-    border: 1px solid rgba(203, 213, 225, 0.8) !important;
-    border-radius: 9999px !important;
-    padding: 0.5rem 1rem;
-    color: #0F172A !important;
-    transition: all 0.2s;
-    outline: none;
-}
-html:not(.dark) .form-input:focus, html.light .form-input:focus { border-color: #0052FF !important; box-shadow: 0 0 0 2px rgba(0, 82, 255, 0.2) !important; }
-
-html:not(.dark) .date-wrapper, html.light .date-wrapper {
-    display: inline-flex; align-items: center; gap: 0.4rem;
-    cursor: pointer; background: rgba(241, 245, 249, 0.9);
-    border: 1px solid rgba(203, 213, 225, 0.8); border-radius: 9999px;
-    padding: 0.4rem 0.85rem; transition: all 0.2s; white-space: nowrap;
-}
-html:not(.dark) .date-wrapper:hover, html.light .date-wrapper:hover { border-color: #0052FF; }
-html:not(.dark) .date-label, html.light .date-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em; color: #0F172A; }
-html:not(.dark) .tx-row, html.light .tx-row { transition: background 0.15s; color: #0F172A !important; }
-html:not(.dark) table thead tr, html.light table thead tr { color: #64748b !important; }
-
-/* ── Common styles ── */
-.material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-}
-
-.toast {
-    position: fixed; bottom: 24px; right: 24px;
-    transform: translateY(100px);
-    transition: all 0.4s cubic-bezier(0.175,0.885,0.32,1.275);
-    z-index: 2000; opacity: 0; pointer-events: none;
-}
-.toast.show { transform: translateY(0); opacity: 1; pointer-events: auto; }
-
-.date-icon { font-size: 14px !important; color: #94a3b8; }
-.date-hidden { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
-
-.text-primary { color: #0052FF !important; }
-
-.year-separator td {
-    background: rgba(0, 82, 255, 0.1) !important;
-    border-bottom: 2px solid rgba(0, 82, 255, 0.3) !important;
-}
-
-@media (max-width: 768px) {
-    table thead { display: none; }
-    table, tbody, tr, td { display: block; width: 100%; }
-    tr {
-        margin-bottom: 1.25rem; border-radius: 1.5rem; padding: 1.25rem;
-        border: 1px solid rgba(226, 232, 240, 0.8);
-        background: rgba(255,255,255,0.9);
-        backdrop-filter: blur(10px);
-    }
-    html.dark tr { background: rgba(15,23,42,0.8) !important; border-color: rgba(255,255,255,0.1) !important; }
-    td { padding: 0 !important; border: none !important; }
-}
-</style>
 </head>
 <body class="min-h-screen text-white">
 
-<!-- Header Unified Nav GBM Style -->
-<nav class="unified-nav">
-    <div class="logo">
-        <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #0052FF, #5631E8); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,82,255,0.4);">
-            <span class="material-symbols-outlined" style="font-size: 20px; color: white;">receipt_long</span>
-        </div>
-        <span>ASISTENTE FINANCIERO</span>
-        <span style="font-size: 11px; background: rgba(0,82,255,0.18); color: #60A5FA; padding: 3px 10px; border-radius: 9999px; font-weight: 800; border: 1px solid rgba(0,82,255,0.3);">TRANSACCIONES</span>
-    </div>
-    <div class="links">
-        <a href="/dashboard">Dashboard</a>
-        <a href="/transactions" class="active">Transacciones</a>
-        <a href="/details">Analíticos</a>
-        <a href="/bolsa">⚡ Inversiones IA</a>
-    </div>
-    <div style="display: flex; align-items: center; gap: 12px;">
-        <button id="theme-btn" onclick="toggleTheme()" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: white; width: 38px; height: 38px; border-radius: 9999px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-            <span class="material-symbols-outlined" style="font-size: 18px;">light_mode</span>
-        </button>
-        <span style="font-size: 11px; font-weight: 800; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 9999px; color: #94A3B8;">
-            ● <span id="visible-count">0</span> REGISTROS
-        </span>
-    </div>
-</nav>
 
-<main class="pt-24 px-4 md:px-8 max-w-[1400px] mx-auto w-full pb-10">
+<div class="app-layout">
+    <div class="sidebar-modern">
+        <div class="sidebar-brand">
+            <i data-lucide="wallet" style="color: var(--primary);"></i>
+            <span>Gastos Raccoon</span>
+        </div>
+        <div class="sidebar-nav">
+            <a href="/dashboard" class="menu-item"><i data-lucide="layout-grid"></i> Dashboard</a>
+            <a href="/transactions" class="menu-item"><i data-lucide="receipt"></i> Transacciones</a>
+            <a href="/details" class="menu-item"><i data-lucide="activity"></i> Analíticos</a>
+            <a href="/bolsa" class="menu-item"><i data-lucide="trending-up"></i> Inversiones IA</a>
+        </div>
+    </div>
+    <div class="main-area">
+        <div class="topbar-modern">
+            <div class="breadcrumb text-sm font-semibold text-slate-400">Plataforma / Resumen</div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <button onclick="sendDashboardToTelegram()" class="icon-btn" title="Enviar a Telegram">
+                    <i data-lucide="send"></i>
+                </button>
+                <button id="theme-btn" onclick="toggleTheme()" class="icon-btn" title="Cambiar Tema">
+                    <i data-lucide="moon"></i>
+                </button>
+            </div>
+        </div>
+        <div class="page-content">
+
+
+<div class="max-w-[1400px] mx-auto w-full">
 
     <!-- Filtros -->
     <div class="glass-card rounded-[2rem] p-6 mb-6">
@@ -277,7 +112,10 @@ html:not(.dark) table thead tr, html.light table thead tr { color: #64748b !impo
             </table>
         </div>
     </div>
-</main>
+</div>
+        </div>
+    </div>
+</div>
 
 <div id="toast" class="toast bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-lg font-bold">
     <span>&#10003; Guardado</span>
@@ -290,11 +128,20 @@ function toggleTheme() {
     document.documentElement.className = next;
     localStorage.setItem('theme', next);
     updateThemeIcon(next);
+    
+    // Sync liquidGL snapshot after CSS transition
+    if (window.liquidGL) {
+        setTimeout(() => { liquidGL.syncWith(); }, 350);
+    }
 }
 function updateThemeIcon(theme) {
-    var btn = document.getElementById('theme-btn');
-    if (btn) btn.innerHTML = '<span class="material-symbols-outlined">' + (theme === 'dark' ? 'light_mode' : 'dark_mode') + '</span>';
-}
+            const btn = document.getElementById('theme-btn');
+            if(btn) {
+                const icon = theme === 'dark' ? 'sun' : 'moon';
+                btn.innerHTML = `<i data-lucide="${icon}"></i>`;
+                if(window.lucide) { lucide.createIcons(); }
+            }
+        }
 /* Aplicar icono según tema actual */
 updateThemeIcon(document.documentElement.className || 'light');
 
@@ -449,6 +296,12 @@ function initPage() {
     document.querySelectorAll('.date-hidden').forEach(function(inp) { updateDateDisplay(inp); });
     /* Calcular total inicial */
     applyFilters();
+    setTimeout(() => {
+        if (window.liquidGL) {
+            try { liquidGL({ target: '.glass-card', snapshot: 'body', resolution: 1.0, refraction: 0.015, bevelDepth: 0.08, bevelWidth: 0.15, frost: 0.05, shadow: true, specular: true }); }
+            catch (e) { document.documentElement.classList.add('no-webgl'); }
+        }
+    }, 500);
 }
 
 if (document.readyState === 'loading') {
@@ -527,33 +380,12 @@ async function deleteExpense(id, btnElem) {
             alert('Error al eliminar: ' + (data.message || 'Desconocido'));
             location.reload();
         }
-/* ── Theme handling ── */
-function toggleTheme() {
-    var html = document.documentElement;
-    var next = html.classList.contains('dark') ? 'light' : 'dark';
-    if (next === 'dark') {
-        html.classList.add('dark');
-        html.classList.remove('light');
-    } else {
-        html.classList.add('light');
-        html.classList.remove('dark');
-    }
-    localStorage.setItem('theme', next);
-    updateThemeIcon(next);
-}
-
-function updateThemeIcon(theme) {
-    var btn = document.getElementById('theme-btn');
-    if (btn) {
-        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">' + (theme === 'dark' ? 'light_mode' : 'dark_mode') + '</span>';
+    } catch(e) {
+        console.error('Error in deleteExpense:', e);
     }
 }
 
-(function() {
-    var savedTheme = localStorage.getItem('theme') || 'dark';
-    document.documentElement.className = savedTheme;
-    updateThemeIcon(savedTheme);
-})();
 </script>
+    <script>lucide.createIcons();</script>
 </body>
 </html>

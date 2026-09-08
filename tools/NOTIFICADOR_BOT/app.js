@@ -1,3 +1,21 @@
+
+// Auto-initialize Lucide Icons on DOM changes (v2.7.1: guard document.body puede ser null si el script carga en <head>)
+if (typeof MutationObserver !== 'undefined' && document.body) {
+    const observer = new MutationObserver((mutations) => {
+        let shouldUpdate = false;
+        for (let mutation of mutations) {
+            if (mutation.addedNodes.length) {
+                shouldUpdate = true;
+                break;
+            }
+        }
+        if (shouldUpdate && window.lucide) {
+            try { lucide.createIcons(); } catch (e) { /* iconos opcionales */ }
+        }
+    });
+    try { observer.observe(document.body, { childList: true, subtree: true }); } catch (e) { /* noop */ }
+}
+
 const API_URL = "/api";
 
 // Elements
@@ -73,17 +91,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 });
 
-// Event Listeners
-workersSlider.addEventListener("input", (e) => workersVal.textContent = e.target.value);
-sourceSelect.addEventListener("change", (e) => {
-    const text = e.target.options[e.target.selectedIndex].text;
-    sourceSubtitle.textContent = `${text} (OPTIMIZADO)`;
+// Event Listeners (v2.7.1: guards null — un elemento faltante tumbaba todo el visor en blanco)
+if (workersSlider && workersVal) workersSlider.addEventListener("input", (e) => { workersVal.textContent = e.target.value; });
+if (sourceSelect && sourceSubtitle) sourceSelect.addEventListener("change", (e) => {
+    try {
+        const text = e.target.options[e.target.selectedIndex].text;
+        sourceSubtitle.textContent = `${text} (OPTIMIZADO)`;
+    } catch (err) { /* noop */ }
 });
 
-btnStart.addEventListener("click", startScan);
-btnStop.addEventListener("click", stopScan);
-btnClearCache.addEventListener("click", () => clearCache("data"));
-btnClearTicker.addEventListener("click", () => clearCache("tickers"));
+if (btnStart) btnStart.addEventListener("click", startScan);
+if (btnStop) btnStop.addEventListener("click", stopScan);
+if (btnClearCache) btnClearCache.addEventListener("click", () => clearCache("data"));
+if (btnClearTicker) btnClearTicker.addEventListener("click", () => clearCache("tickers"));
 
 // Portfolio elements
 const btnAddPortfolio = document.getElementById("btn-add-portfolio");
@@ -136,7 +156,7 @@ if (btnFeedbackBad) {
             });
             alert(`Gracias por el feedback. Se penalizarán los indicadores de ${ticker}.`);
             btnFeedbackBad.disabled = true;
-            btnFeedbackBad.innerHTML = '<i class="fa-solid fa-check"></i> Reportado';
+            btnFeedbackBad.innerHTML = '<i data-lucide="check"></i> Reportado';
             if (document.getElementById('ai-tab').classList.contains('active')) {
                 loadLearnerStats();
             }
@@ -148,7 +168,7 @@ if (btnFeedbackBad) {
 
 async function loadPricesHistory() {
     if (!pricesTbody) return;
-    pricesTbody.innerHTML = `<tr><td colspan="7"><i class="fa-solid fa-spinner fa-spin"></i> Cargando historial...</td></tr>`;
+    pricesTbody.innerHTML = `<tr><td colspan="7"><i data-lucide="loader" class="lucide-spin"></i> Cargando historial...</td></tr>`;
     
     try {
         const res = await fetch(`${API_URL}/prices/history`);
@@ -219,7 +239,7 @@ async function loadLearnerHistory() {
     const tbody = document.getElementById('ai-history-tbody');
     if (!tbody) return;
     
-    tbody.innerHTML = `<tr><td colspan="6"><i class="fa-solid fa-spinner fa-spin"></i> Cargando historial...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><i data-lucide="loader" class="lucide-spin"></i> Cargando historial...</td></tr>`;
     try {
         const res = await fetch(`${API_URL}/learner/history`);
         const data = await res.json();
@@ -292,7 +312,7 @@ async function updateCacheStats() {
         const res = await fetch(`${API_URL}/cache/stats`);
         const data = await res.json();
         const dCache = data.data_cache;
-        cacheStats.innerHTML = `<i class="fa-solid fa-bolt"></i> Caché: ${dCache.total_tickers} stocks | ${dCache.total_size_mb.toFixed(1)} MB | Listas: ${data.ticker_cache.cached_sources}`;
+        cacheStats.innerHTML = `<i data-lucide="zap"></i> Caché: ${dCache.total_tickers} stocks | ${dCache.total_size_mb.toFixed(1)} MB | Listas: ${data.ticker_cache.cached_sources}`;
     } catch (e) {
         console.error("Error fetching cache stats", e);
     }
@@ -376,7 +396,7 @@ async function handleAddPortfolio() {
 }
 
 async function analyzePortfolio() {
-    portfolioTbody.innerHTML = `<tr><td colspan="6"><i class="fa-solid fa-spinner fa-spin"></i> Analizando Cartera...</td></tr>`;
+    portfolioTbody.innerHTML = `<tr><td colspan="6"><i data-lucide="loader" class="lucide-spin"></i> Analizando Cartera...</td></tr>`;
     
     try {
         const res = await fetch(`${API_URL}/portfolio/analyze`, { method: "POST" });
@@ -515,6 +535,9 @@ function getBadgeClass(viability) {
     if (viability.includes("EXCELENTE")) return "alta";
     if (viability.includes("BUENA")) return "moderado";
     if (viability.includes("MODERADA")) return "neutro";
+    return "evitar";
+}
+
 let currentViewMode = 'cards';
 
 function switchViewMode(mode) {
@@ -603,6 +626,8 @@ function renderGBMCards(container, items) {
 }
 
 function renderTables() {
+    // v2.7.1: si faltan los tbody (HTML parcial), no tumbar el visor
+    if (!volatilityTableBody || !gemsTableBody) return;
     const filter = filterViability.value;
     const search = searchTicker.value.toUpperCase();
     
@@ -792,7 +817,7 @@ function selectTicker(row, trElement) {
         ` : ''}
     `;
     
-    detailsContent.innerHTML = detailsHTML;
+    if (detailsContent) detailsContent.innerHTML = detailsHTML;
     
     // Configurar Confianza IA
     const aiConfContent = document.getElementById("ai-confidence-content");
@@ -819,7 +844,7 @@ function selectTicker(row, trElement) {
             if (btnFeedback) {
                 btnFeedback.style.display = "block";
                 btnFeedback.disabled = false;
-                btnFeedback.innerHTML = '<i class="fa-solid fa-thumbs-down"></i> Reportar como mala';
+                btnFeedback.innerHTML = '<i data-lucide="thumbs-down"></i> Reportar como mala';
             }
         } else {
             aiConfContent.innerHTML = `<p class="placeholder-text">Datos de IA no disponibles aún.</p>`;
@@ -852,7 +877,7 @@ async function calculateRisk(row) {
         const data = await res.json();
         
         if (data.error) {
-            riskOutput.innerHTML = `<p style="color:var(--danger-color)"><i class="fa-solid fa-triangle-exclamation"></i> ${data.error}</p>`;
+            riskOutput.innerHTML = `<p style="color:var(--danger-color)"><i data-lucide="alert-triangle"></i> ${data.error}</p>`;
         } else {
             const levRiskWarn = row.Is_Leveraged ? '<div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#ef4444;"><strong>NO RECOMENDADO:</strong> Los calculos de riesgo no son confiables en ETFs apalancados. Su volatilidad multiplicada y decaimiento diario invalidan los metodos tradicionales.</div>' : '';
             riskOutput.innerHTML = levRiskWarn + `
@@ -894,8 +919,8 @@ function updateTslaMonitor() {
     }
     
     const reasons = [];
-    if (rsi < 35) reasons.push(`<li><i class="fa-solid fa-check"></i> RSI en sobreventa (${rsi})</li>`);
-    if (rsi > 65) reasons.push(`<li><i class="fa-solid fa-triangle-exclamation"></i> RSI en sobrecompra (${rsi})</li>`);
+    if (rsi < 35) reasons.push(`<li><i data-lucide="check"></i> RSI en sobreventa (${rsi})</li>`);
+    if (rsi > 65) reasons.push(`<li><i data-lucide="alert-triangle"></i> RSI en sobrecompra (${rsi})</li>`);
     if (tslaData.Viabilidad.includes("EXCELENTE")) reasons.push(`<li><i class="fa-solid fa-star"></i> Viabilidad Excelente detectada</li>`);
     
     tslaContent.innerHTML = `
@@ -915,10 +940,10 @@ function toggleTheme() {
     const html = document.documentElement;
     const next = html.classList.contains('dark') ? 'light' : 'dark';
     if (next === 'dark') {
-        html.classList.add('dark');
+        html.classList.add('dark'); html.setAttribute('data-theme', 'dark');
         html.classList.remove('light');
     } else {
-        html.classList.add('light');
+        html.classList.add('light'); html.setAttribute('data-theme', 'light');
         html.classList.remove('dark');
     }
     localStorage.setItem('theme', next);
@@ -928,7 +953,8 @@ function toggleTheme() {
 function updateThemeIcon(theme) {
     const btn = document.getElementById('theme-btn');
     if (btn) {
-        btn.innerHTML = theme === 'dark' ? '<i class="fa-solid fa-sun" style="font-size: 16px;"></i>' : '<i class="fa-solid fa-moon" style="font-size: 16px;"></i>';
+        btn.innerHTML = theme === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>';
+        if(window.lucide) { lucide.createIcons(); }
     }
 }
 

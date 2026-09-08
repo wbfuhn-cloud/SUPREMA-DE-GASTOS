@@ -128,11 +128,11 @@ body {
 .back-btn { background: var(--primary-color); color: white; padding: 10px 20px; border-radius: var(--btn-radius); font-size: 12px; font-weight: 800; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: var(--transition-fast); }
 .back-btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
 
-/* Glass Panels GBM Style */
+/* Glass Panels GBM Style (v2.7.1: filtro explícito, sin var(--glass-blur) que choca con flux_theme) */
 .glass-panel {
     background: var(--bg-panel);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
     border: 1px solid var(--glass-border);
     border-radius: var(--card-radius);
     box-shadow: var(--shadow-gbm);

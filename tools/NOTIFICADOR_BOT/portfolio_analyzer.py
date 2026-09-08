@@ -3,6 +3,7 @@ portfolio_analyzer.py — Analiza tickers del portafolio con veredicto claro.
 Usa la API directa de Yahoo v8 (sin yfinance) para evitar errores 401.
 """
 from pathlib import Path
+import os
 import pandas as pd
 
 from stock_scanner import (

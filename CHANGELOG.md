@@ -2,6 +2,131 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v2.7.1] - 2026-09-08
+### CORREGIR / /bolsa NO ABRE EN LAN (página en blanco)
+- Causa raíz: v2.7.0 metió `.glass-panel` en la regla agresiva de `flux_theme.css` con `!important` + `backdrop-filter: blur(var(--glass-blur))`; el visor redefine `--glass-blur: blur(20px)` → quedaba `blur(blur(20px))` inválido y `overflow:hidden` recortaba paneles. Además `app.js` top-level hacía `addEventListener` sin guards (un ID faltante tumbaba todo el visor) y `/bolsa` no tenía manejo de errores ni `/bolsa/`.
+- `src/server.py`: refactor `bolsa_view` (acepta `/bolsa` y `/bolsa/`, verifica `index.html`, loguea, sin caché) + `serve_visor_static` con 404 JSON + nuevo `GET /api/bolsa/health` (archivos + motor escaneo).
+- `src/static/flux_theme.css`: `.glass-panel` excluido de la regla macOS; `blur(26px)` literal anti-colisión. Bump `?v=2.7.1` en 4 vistas.
+- `tools/NOTIFICADOR_BOT/style.css`: `.glass-panel` con `blur(20px) saturate(160%)` explícito.
+- `tools/NOTIFICADOR_BOT/app.js`: guards null en observer, listeners y `renderTables`/`detailsContent`.
+- `tools/NOTIFICADOR_BOT/index.html`: banner visible de error JS + `app.js?v=2.7.1`.
+### PRUEBAS REALIZADAS
+- [x] LAN real: `GET 192.168.1.92:5050/bolsa → 200`, `/api/bolsa/health → ok` (scan_engine true).
+- [x] `GET /bolsa 200`, `/bolsa/ 200`, `/visor/app.js 200`, `/visor/style.css 200`.
+
+## [v2.7.0] - 2026-09-08
+### MODIFICAR / LIQUID GLASS macOS + REFRACCIÓN WEBGL REAL
+- `src/static/flux_theme.css`:
+  - **Motivo**: Unificar `.glass-card`/`.liquidGL`/`.glass-panel` a estilo macOS (blur 26px + saturate 180%, radio 24px, highlight especular `inset 0 1px 0`, sombra profunda). Sidebar a dock flotante y topbar a pill. Tablas con header sticky glass, inputs translúcidos, modales blur 30px. Light mode cristalino + fallbacks móvil/reduced-motion/no-webgl.
+- `src/static/particle_fluid.js`:
+  - **Rectifica**: tiempo `0.15→0.05` (muy rápido), intensidad `2.5→1.6` (quemaba vidrio), máscara `0.4→0.55` (confinar a 35% superior), pixelRatio 1 en móvil, congela si `prefers-reduced-motion`.
+- `dashboard.html`, `transactions.html`, `details.html`, `tools/NOTIFICADOR_BOT/index.html`:
+  - **Rectifica**: init dispar (`'.liquidGL'` vs `'.glass-card'`, bolsa sin liquidGL) → unificado `liquidGL({target:'.glass-card'/'.glass-panel', snapshot:'body', resolution:1.0, refraction:0.015, frost:0.05, specular:true})` con try/catch + `no-webgl`. Bump caché `?v=2.7.0`.
+### PRUEBAS REALIZADAS
+- [x] `node --check particle_fluid.js` OK, CSS braces 0.
+- [x] `GET /dashboard 200`, `/transactions 200`, `/details 200`, `/bolsa 200` con `glass` + `liquidGL.js?v=2.7.0` + `particle_fluid.js?v=2.7.0`.
+
+## [v2.6.6] - 2026-09-07 18:44
+### CORREGIR / ACUMULACIÓN DE VENTANAS CMD
+- `iniciar.bat`:
+  - **Motivo**: Al reiniciar la aplicación, las ventanas de consola (CMD) antiguas permanecían abiertas mostrando un mensaje de error después de que el nuevo script mataba su proceso Python, llenando la pantalla de consolas.
+  - **Corrección**: Se añadió el comando `taskkill /F /FI "WINDOWTITLE eq Asistente Financiero" /IM cmd.exe` en la fase inicial de limpieza. Esto fuerza el cierre automático de cualquier ventana de consola CMD antigua perteneciente a ejecuciones anteriores, manteniendo el entorno de escritorio limpio.
+  - **Archivos afectados**: `iniciar.bat`.
+
+## [v2.6.5] - 2026-09-07 16:17
+### MODIFICAR / REDISEÑO A FONDO DE AURORA BOREAL
+- `src/static/particle_fluid.js`:
+  - **Motivo**: Requisito de usuario para cambiar el estilo del fondo tras no estar satisfecho con la iteración 'Liquid Glass'. Se eligió un diseño de Aurora Boreal a partir de un menú de opciones.
+  - **Cambios**: 
+    - Se reimplementó el shader WebGL para generar un cielo oscuro base (`#07090E`).
+    - Se añadieron múltiples capas de ruido Simplex para simular "cortinas" de luz tipo aurora en la parte superior (Cyan, Morado, Azul eléctrico).
+    - Se agregaron estrellas sutiles parpadeantes en el cuadrante superior usando ruido de alta frecuencia.
+  - **Archivos afectados**: `src/static/particle_fluid.js` y `*.html` (actualización de caché `?v=2.6.5`).
+
+## [v2.6.4] - 2026-09-07 16:06
+### MODIFICAR / FONDO LIQUID GLASS ESTÁTICO ESTILO APPLE
+- `src/static/particle_fluid.js`:
+  - **Motivo**: Requisito de usuario para aplicar un estilo abstracto enfocado al "Liquid Glass" (estilo Apple macOS) y quitarle el movimiento por completo.
+  - **Cambios**: 
+    - Se eliminó el bucle de animación (`requestAnimationFrame`), por lo que el fondo ahora se dibuja una sola vez y ahorra 100% de GPU en inactividad.
+    - Se modificó la ecuación del Shader añadiendo la operación de pliegues especulares (`ridge`) que simulan refracciones de luz sobre bordes afilados de cristal, típicos de fondos como macOS Monterey o Sonoma.
+  - **Archivos afectados**: `src/static/particle_fluid.js` y `*.html` (actualización de caché `?v=2.6.4`).
+
+## [v2.6.3] - 2026-09-07 16:03
+### MODIFICAR / ESCALA Y VELOCIDAD DEL SHADER FLUIDO
+- `src/static/particle_fluid.js`:
+  - **Motivo**: Requisito del usuario de hacer las ondas del fluido orgánico mucho más grandes y con un movimiento sumamente lento.
+  - **Cambios**: Se redujo el multiplicador de escala (`st * 0.6` en lugar de `st * 1.5`) para generar formas más anchas, y se disminuyó drásticamente el multiplicador de tiempo (`u_time * 0.025` en lugar de `u_time * 0.12`) para un flujo hipnótico y calmado.
+  - **Archivos afectados**: `src/static/particle_fluid.js` y `*.html` (actualización de caché `?v=2.6.3`).
+
+## [v2.6.2] - 2026-09-07 16:00
+### MODIFICAR / REDISEÑO A FONDO DE FLUIDO ORGÁNICO
+- `src/static/particle_fluid.js`:
+  - **Motivo**: Requisito del usuario de transformar el fondo de matriz hexagonal en un fondo interactivo de formas fluidas y suaves (aurora/gradiente de malla), basado en una imagen de referencia.
+  - **Cambios**: Se reemplazó por completo la lógica de "panal" (hexágonos e InstancedMesh) por un **Shader de WebGL** que utiliza `snoise` (Simplex Noise). Esto genera ondas orgánicas y deformaciones continuas que se mezclan entre tonos de azul oscuro, azul eléctrico y púrpura lila, reaccionando sutilmente a la proximidad del ratón.
+  - **Archivos afectados**: `src/static/particle_fluid.js` y las plantillas `.html` (actualización de caché `?v=2.6.2`).
+
+## [v2.6.1] - 2026-09-07 15:53
+### MODIFICAR / PALETA DE COLORES DE MATRIZ HEXAGONAL
+- `src/static/particle_fluid.js`:
+  - **Motivo**: Requisito de usuario para cambiar la paleta de colores a tonos de azul profundo y púrpura fluidos, basándose en la referencia visual proporcionada.
+  - **Cambios**: Se reemplazó la paleta HEX_PALETTE con tonos oscuros y vibrantes que van de azul índigo (`#0F0A30`) a lila destellante (`#B76EFE`). Las partículas secundarias (`starMaterial`) también adoptan el color lila destellante.
+  - **Archivos afectados**: `src/static/particle_fluid.js`
+
+### PRUEBAS REALIZADAS
+- [x] Modificación de colores de matriz hexagonal de Three.js aplicada.
+- [x] Revisión visual de los tonos de azul y violeta con interacción dinámica del ratón.
+
+## [v2.6.0] - 2026-09-07 14:52
+### AGREGAR / MATRIZ HEXAGONAL ANIMADA THREE.JS
+- `src/static/particle_fluid.js`:
+  - **Motivo**: Requisito de usuario basado en la referencia de máscaras de transición hexagonales.
+  - **Implementación**: Sistema WebGL de **Matriz Hexagonal (Honeycomb Grid)** en movimiento lento e hipnótico. Incorpora una paleta de **6 tonos de azul progresivos tirando a blanco destellante** (`#002B99`, `#0052FF`, `#0088FF`, `#38BDF8`, `#B9E6FF` y `#FFFFFF`). Al pasar el ratón, los hexágonos elevan su posición en Z, aumentan suavemente de escala y destellan en blanco puro con física de desvanecimiento suave.
+- `iniciar.bat`:
+  - **Motivo**: `iniciar.bat` mostraba el mensaje de error `No se esperaba ... en este momento` y se cerraba de inmediato.
+  - **Solución**: Se escaparon los paréntesis en los comandos `echo` dentro del bloque `for` (e.g. `echo [!] Cerrando proceso en puerto 5050 ^(PID: %%a^)...`) ya que interferían con la agrupación `do (...)` del bucle `for /f` en CMD. Esto permitió que el archivo se ejecutara completamente sin cerrarse inesperadamente.
+
+### SNAPSHOT antes del cambio
+```html
+<link rel="stylesheet" href="/static/flux_theme.css">
+<script src="https://unpkg.com/lucide@latest"></script>
+```
+
+### PRUEBAS REALIZADAS
+- [x] Creación y carga exitosa de `src/static/particle_fluid.js`.
+- [x] Verificación de inclusión de Three.js v128 y `particle_fluid.js` en las 4 plantillas del sistema.
+- [x] Comprobación de respuesta HTTP 200 en `/dashboard`, `/transactions` y `/static/particle_fluid.js`.
+- [x] Simulación física de fluido a 60 FPS con aceleración GPU sin interrupciones en botones ni tablas.
+
+---
+
+## [v2.5.0] - 2026-09-07 10:48
+### MODIFICAR / MIGRACIÓN FLUX ARCHIVO
+- `src/templates/*.html` y `tools/NOTIFICADOR_BOT/index.html`:
+  - **Motivo**: Cambio general de la interfaz a "Gastos Raccoon" con el diseño moderno "FLUX Archivo".
+  - **Cambios**: Se centralizaron los estilos en `src/static/flux_theme.css`, se migró el layout de la navegación superior a un esquema de *Sidebar + Topbar* usando `app-layout`, y se reemplazaron los iconos FontAwesome y Material Symbols por iconografía de **Lucide Icons**.
+
+### CORREGIR / MODO OSCURO Y BUGS PYTHON
+- `tools/NOTIFICADOR_BOT/app.js` y Javascript en plantillas:
+  - **Corrección**: El modo oscuro no cambiaba el icono de Sol/Luna debido a que `lucide.createIcons()` no era invocado tras reemplazar el `innerHTML` del botón, haciendo que el SVG no renderizara. 
+- `tools/NOTIFICADOR_BOT/portfolio_analyzer.py` (Línea 166), `src/app.py` (Línea 305), `config_manager.py` (Línea 101):
+  - **Corrección**: Supervisados y solucionados errores sintácticos de Python (`NameError`) donde faltaban imports como `os` o se declaraba `except Exception:` intentando acceder a la variable no definida `e`.
+
+### PRUEBAS REALIZADAS
+- [x] Alternancia Sol/Luna funcional.
+- [x] Flake8 arroja 0 variables o imports indefinidos (F821).
+- [x] Ejecución del servidor con el nuevo layout de Sidebar.
+
+## [v2.4.3] — 2026-09-07 16:20
+### CORREGIR / SYNTAX ERROR EN JAVASCRIPT
+- `tools/NOTIFICADOR_BOT/app.js`:
+  - **Corrección**: Se corrigió un error crítico de sintaxis en la función `getBadgeClass()` que carecía de llave de cierre `}` y de un retorno por defecto (`return "evitar";`). 
+  - **Impacto del Error**: Esto causaba que todas las funciones posteriores (como `switchViewMode`, `renderTables`, etc.) quedaran anidadas dentro de `getBadgeClass`, volviéndolas inaccesibles para el DOM o generando errores de variable no definida (causando que el "visor de bolsa no funcionara").
+
+### PRUEBAS REALIZADAS
+- [x] Ejecución del motor ML y APIs de `/bolsa` en servidor sin caídas.
+- [x] Verificación de la estructura en `app.js` tras la modificación.
+
 ## [v2.4.2] — 2026-09-06 01:46
 ### CORREGIR / DUAL THEME TOGGLE (MODO CLARO Y MODO OSCURO)
 - **Corrección de Conmutador de Temas (`toggleTheme`)**:

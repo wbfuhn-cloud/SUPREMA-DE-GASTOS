@@ -1,8 +1,34 @@
 @echo off
-title Asistente Financiero
+title Lanzador Gastos Raccoon
 cd /d "%~dp0"
 
-:: Auto-actualizador desde GitHub
+echo ===================================================
+echo   INICIANDO ASISTENTE FINANCIERO - GASTOS RACCOON
+echo ===================================================
+echo.
+
+:: 1. Liberar puertos y cerrar ventanas previas
+echo [*] Cerrando ventanas previas y liberando puertos 5050 y 5000...
+taskkill /F /FI "WINDOWTITLE eq Asistente Financiero" /IM cmd.exe >nul 2>&1
+
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5050"') do (
+    if not "%%a"=="0" (
+        echo [!] Cerrando proceso en puerto 5050 ^(PID: %%a^)...
+        taskkill /f /pid %%a >nul 2>&1
+    )
+)
+
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5000"') do (
+    if not "%%a"=="0" (
+        echo [!] Cerrando proceso en puerto 5000 ^(PID: %%a^)...
+        taskkill /f /pid %%a >nul 2>&1
+    )
+)
+
+echo [OK] Puertos liberados correctamente.
+echo.
+
+:: 2. Auto-actualizador desde GitHub
 echo [*] Buscando actualizaciones en GitHub...
 if exist ".git" (
     git pull origin main
@@ -16,12 +42,12 @@ if exist ".git" (
 )
 echo.
 
-:: Python del entorno virtual
+:: 3. Python del entorno virtual
 set "PYTHON=%~dp0.venv\Scripts\python.exe"
 if not exist "%PYTHON%" (
     echo [ERROR] No se encontro el entorno virtual .venv
     echo.
-    echo Solucion: Ejecuta este comando en la terminal:
+    echo Solucion: Ejecuta estos comandos en la terminal:
     echo   python -m venv .venv
     echo   .venv\Scripts\pip install -r requirements.txt
     echo.
@@ -32,7 +58,7 @@ if not exist "%PYTHON%" (
 echo [OK] Python encontrado: %PYTHON%
 echo.
 
-:: Verificar dependencias
+:: 4. Verificar dependencias
 echo [0/1] Verificando dependencias...
 "%PYTHON%" -c "import flask, bs4, httpx, pandas, msal, sklearn" 2>nul
 if %ERRORLEVEL% NEQ 0 (
@@ -47,12 +73,12 @@ if %ERRORLEVEL% NEQ 0 (
 echo [OK] Dependencias listas.
 echo.
 
-:: Lanzar la app principal
+:: 5. Lanzar la app principal
 echo [1/1] Lanzando ASISTENTE FINANCIERO (Todo en uno)...
 echo.
 echo   NOTA: Se abrira una ventana del navegador con el dashboard.
-echo   El puerto se asignara automaticamente para evitar conflictos.
 echo.
+title Asistente Financiero
 "%PYTHON%" "%~dp0src\app.py"
 
 if %ERRORLEVEL% NEQ 0 (
@@ -60,7 +86,7 @@ if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] La aplicacion termino con codigo: %ERRORLEVEL%
     echo.
     echo Posibles causas:
-    echo   - El entorno virtual (.venv) fue copiado de otra PC y esta roto. (Bórralo y re-créalo)
+    echo   - El entorno virtual (.venv) fue copiado de otra PC y esta roto. (Borralo y re-crealo)
     echo   - Error en src/app.py
     echo.
     pause

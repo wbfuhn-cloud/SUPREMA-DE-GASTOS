@@ -636,17 +636,62 @@ def send_to_telegram():
     return jsonify({"success": success, "message": message})
 
 
-# ─── Rutas de Bolsa ──────────────────────────────────────────────────────────
-@app.route('/bolsa')
+# ─── Rutas de Bolsa (refactor v2.7.1: robusto + diagnóstico) ────────────────
+@app.route('/bolsa', strict_slashes=False)
+@app.route('/bolsa/', strict_slashes=False)
 def bolsa_view():
-    visor_dir = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT')
-    return send_from_directory(visor_dir, 'index.html')
+    """Sirve el visor /bolsa con manejo de errores y sin caché.
+
+    RECTIFICA v2.7.1: antes era un send_from_directory sin try/except;
+    si index.html faltaba o había un error, Werkzeug devolvía un 404
+    genérico y en LAN parecía que 'no abre'. Ahora loguea y devuelve
+    una página de error legible con estado 500/404 explícito.
+    """
+    try:
+        visor_dir = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT')
+        index_path = os.path.join(visor_dir, 'index.html')
+        if not os.path.isfile(index_path):
+            logger.error(f"/bolsa: index.html no encontrado en {visor_dir}")
+            return _html_response(_error_page("/bolsa: index.html no encontrado")), 404
+        resp = send_from_directory(visor_dir, 'index.html')
+        # Sin caché: el visor cambia seguido (ml, theme) y el ?v= ya versiona assets
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        return resp
+    except Exception as e:
+        logger.error(f"Error sirviendo /bolsa: {e}", exc_info=True)
+        return _html_response(_error_page(str(e))), 500
 
 
 @app.route('/visor/<path:path>')
 def serve_visor_static(path):
-    visor_dir = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT')
-    return send_from_directory(visor_dir, path)
+    try:
+        visor_dir = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT')
+        return send_from_directory(visor_dir, path)
+    except Exception as e:
+        logger.error(f"Error sirviendo /visor/{path}: {e}")
+        return jsonify({'status': 'error', 'message': f'Asset no encontrado: {path}'}), 404
+
+
+@app.route('/api/bolsa/health', methods=['GET'])
+def bolsa_health():
+    """Diagnóstico rápido para 'no abre en LAN': verifica archivos y motor."""
+    try:
+        visor_dir = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT')
+        checks = {
+            'index_html': os.path.isfile(os.path.join(visor_dir, 'index.html')),
+            'app_js': os.path.isfile(os.path.join(visor_dir, 'app.js')),
+            'style_css': os.path.isfile(os.path.join(visor_dir, 'style.css')),
+            'flux_theme': os.path.isfile(os.path.join(root_dir, 'src', 'static', 'flux_theme.css')),
+            'liquidGL': os.path.isfile(os.path.join(root_dir, 'src', 'static', 'liquidGL.js')),
+            'particle_fluid': os.path.isfile(os.path.join(root_dir, 'src', 'static', 'particle_fluid.js')),
+            'visor_import_error': visor_import_error,
+            'scan_engine': bool(fetch_stock_data),
+        }
+        ok = all([checks['index_html'], checks['app_js'], checks['style_css']])
+        return jsonify({'status': 'ok' if ok else 'error', 'checks': checks}), (200 if ok else 503)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/api/scan/start', methods=['POST'])

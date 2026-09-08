@@ -50,3 +50,23 @@
 - Script de prueba de entrenamiento con validación temporal cruzada (`TimeSeriesSplit`).
 - Verificación visual en la UI de la columna "ML Score" y badge de confianza.
 - Verificación de ausencia de advertencias SQL injection y excepciones silenciosas.
+
+---
+
+# 📋 MÓDULO: FONDO ANIMADO DE FLUIDO DE PARTÍCULAS (THREE.JS)
+
+## 7. VISIÓN Y REQUISITOS DEL FONDO ANIMADO
+- **Objetivo**: Implementar un canvas WebGL interactivo en segundo plano basado en **Three.js** que renderice un fluido de partículas monocromáticas (Azul Eléctrico/Cobalto #0052FF) con movimiento orgánico por la pantalla e interacción en tiempo real con la trayectoria y velocidad del ratón.
+- **Criterios de Éxito**:
+  - Fluido monocromático continuo en segundo plano a 60 FPS sin afectar la interacción de los elementos de la interfaz (tarjetas glass, botones, selects).
+  - Reacción física del fluido al ratón: fuerza de repulsión suave y vórtice según la velocidad del puntero.
+  - Adaptación estética según el tema de la app (Obsidian Dark vs Minimalist Light).
+  - Carga limpia de Three.js desde CDN sin bloquear el renderizado inicial ni generar errores en la consola del navegador.
+- **Archivos Afectados**:
+  - [NEW] `src/static/particle_fluid.js`
+  - [MODIFY] `src/templates/dashboard.html`
+  - [MODIFY] `src/templates/transactions.html`
+  - [MODIFY] `src/templates/details.html`
+  - [MODIFY] `tools/NOTIFICADOR_BOT/index.html`
+  - [MODIFY] `CHANGELOG.md`
+

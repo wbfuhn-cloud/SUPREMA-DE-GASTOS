@@ -98,7 +98,7 @@ class ConfigManager:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
             return True
         except Exception as e:
-            logger.error(f"Error al guardar configuración: {e}")
+            print(f"Error al guardar configuración: {e}")
             return False
     
     def get_filters(self):

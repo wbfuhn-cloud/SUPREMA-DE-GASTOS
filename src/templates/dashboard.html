@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASISTENTE FINANCIERO | Financial Clarity</title>
+    <title>Gastos Raccoon | Financial Clarity</title>
     
     <!-- Restaurar tema ANTES del CSS para evitar flash -->
     <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.className=t;})();</script>
@@ -45,189 +45,47 @@
         }
     </script>
 
-    <style>
-        :root {
-            --primary-color: #0052FF;
-            --primary-purple: #5631E8;
-            --success-color: #10B981;
-            --danger-color: #EF4444;
-            --warning-color: #F59E0B;
-            --btn-radius: 9999px;
-            --card-radius: 24px;
-        }
+    
+    <link rel="stylesheet" href="/static/flux_theme.css?v=2.7.1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script defer src="/static/particle_fluid.js?v=2.7.0"></script>
+    <script defer src="/static/liquidGL.js?v=2.7.0"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 
-        /* ── MODO OSCURO (GBM Obsidian Dark) ── */
-        html.dark body {
-            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
-            -webkit-font-smoothing: antialiased;
-            background-color: #07090E !important;
-            background-image: 
-                radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.15) 0px, transparent 50%),
-                radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.15) 0px, transparent 50%) !important;
-            background-attachment: fixed !important;
-            color: #FFFFFF !important;
-            min-height: 100vh;
-        }
-
-        html.dark .unified-nav {
-            position: fixed; top: 0; left: 0; width: 100%; height: 68px;
-            background: rgba(7, 9, 14, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0 32px; z-index: 1000; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            color: #FFFFFF;
-        }
-        html.dark .unified-nav .logo-title { color: #FFFFFF !important; }
-        html.dark .unified-nav .links { display: flex; gap: 6px; background: rgba(255,255,255,0.03); padding: 4px; border-radius: 9999px; border: 1px solid rgba(255, 255, 255, 0.08); }
-        html.dark .unified-nav a { color: #94A3B8; text-decoration: none; font-size: 13px; font-weight: 700; padding: 8px 18px; border-radius: 9999px; transition: all 0.2s ease; }
-        html.dark .unified-nav a:hover { color: white; background: rgba(255,255,255,0.06); }
-        html.dark .unified-nav a.active { color: white; background: #0052FF; box-shadow: 0 4px 12px rgba(0, 82, 255, 0.3); }
-
-        html.dark .glass-card {
-            background: rgba(13, 18, 30, 0.75) !important;
-            backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-            -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            border-radius: 24px !important;
-            color: #FFFFFF !important;
-            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 82, 255, 0.08) !important;
-            position: relative;
-            z-index: 10;
-            transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
-        }
-
-        html.dark .glass-card:hover {
-            border-color: rgba(0, 82, 255, 0.4) !important;
-            box-shadow: 0 25px 50px -12px rgba(0, 82, 255, 0.2) !important;
-            transform: translateY(-2px);
-        }
-
-        /* ── MODO CLARO (GBM Light Minimalist) ── */
-        html:not(.dark) body, html.light body {
-            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important;
-            -webkit-font-smoothing: antialiased;
-            background-color: #F8FAFC !important;
-            background-image: 
-                radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.06) 0px, transparent 50%),
-                radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.04) 0px, transparent 50%) !important;
-            background-attachment: fixed !important;
-            color: #0F172A !important;
-            min-height: 100vh;
-        }
-
-        html:not(.dark) .unified-nav, html.light .unified-nav {
-            position: fixed; top: 0; left: 0; width: 100%; height: 68px;
-            background: rgba(255, 255, 255, 0.90); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0 32px; z-index: 1000; border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            color: #0F172A;
-        }
-        html:not(.dark) .unified-nav .logo-title, html.light .unified-nav .logo-title { color: #0F172A !important; }
-        html:not(.dark) .unified-nav .links, html.light .unified-nav .links { display: flex; gap: 6px; background: rgba(241, 245, 249, 0.9); padding: 4px; border-radius: 9999px; border: 1px solid rgba(226, 232, 240, 0.8); }
-        html:not(.dark) .unified-nav a, html.light .unified-nav a { color: #475569; text-decoration: none; font-size: 13px; font-weight: 700; padding: 8px 18px; border-radius: 9999px; transition: all 0.2s ease; }
-        html:not(.dark) .unified-nav a:hover, html.light .unified-nav a:hover { color: #0F172A; background: rgba(226, 232, 240, 0.8); }
-        html:not(.dark) .unified-nav a.active, html.light .unified-nav a.active { color: white; background: #0052FF; box-shadow: 0 4px 12px rgba(0, 82, 255, 0.25); }
-
-        html:not(.dark) .glass-card, html.light .glass-card {
-            background: rgba(255, 255, 255, 0.90) !important;
-            backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-            -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.05) !important;
-            border: 1px solid rgba(226, 232, 240, 0.9) !important;
-            border-radius: 24px !important;
-            color: #0F172A !important;
-            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05), 0 0 15px rgba(0, 82, 255, 0.04) !important;
-            position: relative;
-            z-index: 10;
-            transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
-        }
-
-        html:not(.dark) .glass-card:hover, html.light .glass-card:hover {
-            border-color: rgba(0, 82, 255, 0.3) !important;
-            box-shadow: 0 15px 35px -5px rgba(0, 82, 255, 0.1) !important;
-            transform: translateY(-2px);
-        }
-
-        .material-symbols-outlined {
-            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-        }
-
-        .content {
-            position: relative;
-            z-index: 3;
-        }
-
-        .stat-value {
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .stat-updating {
-            opacity: 0.3;
-            transform: scale(0.95);
-        }
-
-        @keyframes rowHighlight {
-            0% { background: rgba(86, 49, 232, 0.1); transform: translateY(-5px); }
-            100% { background: transparent; transform: translateY(0); }
-        }
-
-        .new-row {
-            animation: rowHighlight 2s ease-out forwards;
-        }
-
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(0, 82, 255, 0.3); border-radius: 10px; }
-
-        .chart-container {
-            position: relative;
-            height: 250px;
-            width: 100%;
-        }
-
-        .modal-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            display: none; justify-content: center; align-items: center;
-            z-index: 100;
-            backdrop-filter: blur(8px);
-        }
-        .modal-overlay.active { display: flex; }
-    </style>
 </head>
 <body class="min-h-screen flex flex-col font-body">
 
-    <!-- Header Unified Nav GBM Style -->
-    <nav class="unified-nav">
-        <div class="logo">
-            <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #0052FF, #5631E8); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,82,255,0.4);">
-                <span class="material-symbols-outlined" style="font-size: 20px; color: white;">account_balance_wallet</span>
+    
+<div class="app-layout">
+    <div class="sidebar-modern">
+        <div class="sidebar-brand">
+            <i data-lucide="wallet" style="color: var(--primary);"></i>
+            <span>Gastos Raccoon</span>
+        </div>
+        <div class="sidebar-nav">
+            <a href="/dashboard" class="menu-item"><i data-lucide="layout-grid"></i> Dashboard</a>
+            <a href="/transactions" class="menu-item"><i data-lucide="receipt"></i> Transacciones</a>
+            <a href="/details" class="menu-item"><i data-lucide="activity"></i> Analíticos</a>
+            <a href="/bolsa" class="menu-item"><i data-lucide="trending-up"></i> Inversiones IA</a>
+        </div>
+    </div>
+    <div class="main-area">
+        <div class="topbar-modern">
+            <div class="breadcrumb text-sm font-semibold text-slate-400">Plataforma / Resumen</div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <button onclick="sendDashboardToTelegram()" class="icon-btn" title="Enviar a Telegram">
+                    <i data-lucide="send"></i>
+                </button>
+                <button id="theme-btn" onclick="toggleTheme()" class="icon-btn" title="Cambiar Tema">
+                    <i data-lucide="moon"></i>
+                </button>
             </div>
-            <span>ASISTENTE FINANCIERO</span>
-            <span style="font-size: 11px; background: rgba(0,82,255,0.18); color: #60A5FA; padding: 3px 10px; border-radius: 99px; font-weight: 800; border: 1px solid rgba(0,82,255,0.3);">GBM STYLE</span>
         </div>
-        <div class="links">
-            <a href="/dashboard" class="active">Dashboard</a>
-            <a href="/transactions">Transacciones</a>
-            <a href="/details">Analíticos</a>
-            <a href="/bolsa">⚡ Inversiones IA</a>
-        </div>
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <button onclick="sendDashboardToTelegram()" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: white; width: 38px; height: 38px; border-radius: 99px; display: flex; align-items: center; justify-content: center; cursor: pointer;" title="Enviar a Telegram">
-                <span class="material-symbols-outlined" style="font-size: 18px;">send</span>
-            </button>
-            <button id="theme-btn" onclick="toggleTheme()" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: white; width: 38px; height: 38px; border-radius: 99px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-                <span class="material-symbols-outlined" style="font-size: 18px;">light_mode</span>
-            </button>
-            <span id="dashboard-total-count" style="font-size: 11px; font-weight: 800; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 99px; color: #94A3B8;">
-                ● {{ count }} REGISTROS
-            </span>
-        </div>
-    </nav>
+        <div class="page-content">
+
 
     <!-- Main Content -->
-    <main class="flex-grow pt-24 pb-32 px-4 md:px-8 max-w-[1400px] mx-auto w-full">
+    <div class="max-w-[1400px] mx-auto w-full">
         
         <!-- Year tabs -->
         <div class="flex flex-wrap gap-2 mb-6">
@@ -251,7 +109,7 @@
                 <div class="content flex flex-wrap items-center gap-6 mt-12">
                     <div class="flex items-center gap-2">
                         <div class="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 flex items-center justify-center">
-                            <span class="material-symbols-outlined text-sm font-bold">trending_up</span>
+                            <i data-lucide="trending-up" class="w-5 h-5"></i>
                         </div>
                         <div>
                             <p class="text-[10px] uppercase font-bold text-slate-400">Promedio Diario</p>
@@ -260,7 +118,7 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <div class="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                            <span class="material-symbols-outlined text-sm font-bold">event</span>
+                            <i data-lucide="calendar" class="w-5 h-5"></i>
                         </div>
                         <div>
                             <p class="text-[10px] uppercase font-bold text-slate-400">Proyección Mensual</p>
@@ -295,9 +153,9 @@
                 <div class="glass-card rounded-3xl p-6 cursor-pointer hover:border-amber-400/50 transition-all group" onclick="openModal('modal-loans')">
                     <div class="flex justify-between items-start mb-4">
                         <div class="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <span class="material-symbols-outlined">payments</span>
+                            <i data-lucide="banknote" class="w-5 h-5"></i>
                         </div>
-                        <span class="material-symbols-outlined text-slate-300">chevron_right</span>
+                        <i data-lucide="chevron-right" class="w-5 h-5"></i>
                     </div>
                     <p class="text-[10px] font-bold text-slate-400 uppercase">Préstamos a Cobrar</p>
                     <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1" id="stat-loan">${{ total_loan | format_currency }}</p>
@@ -305,9 +163,9 @@
                 <div class="glass-card rounded-3xl p-6 cursor-pointer hover:border-rose-400/50 transition-all group" onclick="openModal('modal-debts')">
                     <div class="flex justify-between items-start mb-4">
                         <div class="w-10 h-10 rounded-2xl bg-rose-100 dark:bg-rose-900/30 text-rose-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <span class="material-symbols-outlined">outbox</span>
+                            <i data-lucide="upload" class="w-5 h-5"></i>
                         </div>
-                        <span class="material-symbols-outlined text-slate-300">chevron_right</span>
+                        <i data-lucide="chevron-right" class="w-5 h-5"></i>
                     </div>
                     <p class="text-[10px] font-bold text-slate-400 uppercase">Deudas a Pagar</p>
                     <p class="text-2xl font-bold text-slate-900 dark:text-white mt-1" id="stat-debt">${{ total_debt | format_currency }}</p>
@@ -317,7 +175,7 @@
             <!-- Top Merchants -->
             <div class="md:col-span-6 glass-card rounded-3xl p-6">
                 <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                    <span class="material-symbols-outlined text-sm">stars</span> Top Comercios
+                    <i data-lucide="star" class="w-5 h-5"></i> Top Comercios
                 </h2>
                 <div id="top-merchants-container" class="space-y-4">
                     {{ top_merchants_html | safe }}
@@ -343,7 +201,7 @@
                 <div class="flex items-center justify-between mb-8">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-rose-500 rounded-xl flex items-center justify-center text-white">
-                            <span class="material-symbols-outlined">warning</span>
+                            <i data-lucide="alert-triangle" class="w-5 h-5"></i>
                         </div>
                         <div>
                             <h2 class="font-heading font-bold text-xl text-slate-900 dark:text-white">Calculadora de Crisis</h2>
@@ -351,7 +209,7 @@
                         </div>
                     </div>
                     <button onclick="syncCrisisBalance()" class="text-xs font-bold text-primary flex items-center gap-1 hover:underline">
-                        <span class="material-symbols-outlined text-sm">sync</span> Sincronizar Saldo
+                        <i data-lucide="refresh-cw" class="w-5 h-5"></i> Sincronizar Saldo
                     </button>
                 </div>
 
@@ -414,7 +272,7 @@
             <!-- Quick Add Expense Form -->
             <div class="md:col-span-5 glass-card rounded-3xl p-6 bg-primary/5 border-primary/20">
                 <h2 class="text-xs font-bold uppercase tracking-widest text-primary mb-6 flex items-center gap-2">
-                    <span class="material-symbols-outlined text-sm font-bold">add_circle</span> Registrar Nuevo
+                    <i data-lucide="plus-circle" class="w-5 h-5"></i> Registrar Nuevo
                 </h2>
                 <form id="addExpenseForm" onsubmit="event.preventDefault(); submitExpense();" class="space-y-4">
                     <div class="space-y-1">
@@ -461,13 +319,16 @@
                 </form>
             </div>
         </div>
-    </main>
+    </div>
+        </div>
+    </div>
+</div>
 
     <!-- Footer -->
     <footer class="bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 py-12 px-6">
         <div class="max-w-[1400px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
             <div class="text-center md:text-left">
-                <p class="text-sm font-bold text-slate-900 dark:text-white">ASISTENTE FINANCIERO</p>
+                <p class="text-sm font-bold text-slate-900 dark:text-white">Gastos Raccoon</p>
                 <p class="text-[10px] text-slate-400 uppercase tracking-widest mt-1">SISTEMA DE GESTIÓN FINANCIERA</p>
             </div>
             <div class="text-center">
@@ -484,15 +345,15 @@
     <!-- Mobile Navigation Bar -->
     <nav class="md:hidden fixed bottom-0 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg border-t border-slate-100 dark:border-slate-800 h-16 flex justify-around items-center z-50">
         <a href="/" class="flex flex-col items-center text-primary">
-            <span class="material-symbols-outlined font-bold">grid_view</span>
+            <i data-lucide="layout-grid" class="w-5 h-5"></i>
             <span class="text-[10px] font-bold uppercase mt-1">Panel</span>
         </a>
         <a href="/transactions" class="flex flex-col items-center text-slate-400">
-            <span class="material-symbols-outlined">receipt_long</span>
+            <i data-lucide="receipt" class="w-5 h-5"></i>
             <span class="text-[10px] font-bold uppercase mt-1">Lista</span>
         </a>
         <a href="/details" class="flex flex-col items-center text-slate-400">
-            <span class="material-symbols-outlined">monitoring</span>
+            <i data-lucide="activity" class="w-5 h-5"></i>
             <span class="text-[10px] font-bold uppercase mt-1">Meta</span>
         </a>
     </nav>
@@ -503,7 +364,7 @@
             <div class="p-6 border-b dark:border-slate-800 flex justify-between items-center">
                 <h3 class="font-heading font-bold text-xl text-slate-900 dark:text-white">Detalle de Préstamos</h3>
                 <button onclick="closeModal('modal-loans')" class="text-slate-400 hover:text-slate-900 dark:hover:text-white">
-                    <span class="material-symbols-outlined">close</span>
+                    <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
             <div class="p-6 max-h-[70vh] overflow-y-auto">
@@ -521,7 +382,7 @@
             <div class="p-6 border-b dark:border-slate-800 flex justify-between items-center">
                 <h3 class="font-heading font-bold text-xl text-slate-900 dark:text-white">Detalle de Deudas</h3>
                 <button onclick="closeModal('modal-debts')" class="text-slate-400 hover:text-slate-900 dark:hover:text-white">
-                    <span class="material-symbols-outlined">close</span>
+                    <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
             <div class="p-6 max-h-[70vh] overflow-y-auto">
@@ -531,9 +392,15 @@
                     </tbody>
                 </table>
             </div>
-        </div>
-    </div>
-
+        </div>    <script id="dash-chart-data" type="application/json">
+    {
+        "cats": {{ cats | tojson }},
+        "vals": {{ vals | tojson }},
+        "week_labels": {{ week_labels | tojson }},
+        "week_data": {{ week_data | tojson }},
+        "total_amount": {{ total_amount }}
+    }
+    </script>
     <script>
         // Core Utilities
         function openModal(id) { document.getElementById(id).classList.add('active'); }
@@ -546,21 +413,30 @@
             const next = current === 'dark' ? 'light' : 'dark';
             
             if (next === 'dark') {
-                html.classList.add('dark');
+                html.classList.add('dark'); html.setAttribute('data-theme', 'dark');
                 html.classList.remove('light');
             } else {
-                html.classList.add('light');
+                html.classList.add('light'); html.setAttribute('data-theme', 'light');
                 html.classList.remove('dark');
             }
             
             localStorage.setItem('theme', next);
             updateThemeIcon(next);
             updateChartsTheme(next);
+            
+            // Sync liquidGL snapshot after CSS transition
+            if (window.liquidGL) {
+                setTimeout(() => { liquidGL.syncWith(); }, 350);
+            }
         }
 
         function updateThemeIcon(theme) {
             const btn = document.getElementById('theme-btn');
-            btn.innerHTML = `<span class="material-symbols-outlined">${theme === 'dark' ? 'light_mode' : 'dark_mode'}</span>`;
+            if(btn) {
+                const icon = theme === 'dark' ? 'sun' : 'moon';
+                btn.innerHTML = `<i data-lucide="${icon}"></i>`;
+                if(window.lucide) { lucide.createIcons(); }
+            }
         }
 
         // Init Theme on Load
@@ -579,7 +455,7 @@
             const merchant = button.dataset.merchant;
             const total = parseFloat(button.dataset.total);
             
-            if (!confirm(`¿Marcar como completado?\\n\\n${merchant}\\n$${total.toFixed(2)}`)) return;
+            if (!confirm(`¿Marcar como completado?\n\n${merchant}\n$${total.toFixed(2)}`)) return;
             
             button.disabled = true;
             button.innerHTML = '...';
@@ -743,7 +619,14 @@
         }
 
         // Charts Initialization
+        function getDashChartData() {
+            try {
+                return JSON.parse(document.getElementById('dash-chart-data').textContent || '{}');
+            } catch(e) { return {}; }
+        }
+
         function initCharts() {
+            const chartData = getDashChartData();
             const ctx = document.getElementById('categoryChart').getContext('2d');
             const ctxWeek = document.getElementById('weekChart').getContext('2d');
             const isDark = document.documentElement.classList.contains('dark');
@@ -752,10 +635,10 @@
             window.catChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: {{ cats | tojson }},
+                    labels: chartData.cats || [],
                     datasets: [{
                         label: 'Monto',
-                        data: {{ vals | tojson }},
+                        data: chartData.vals || [],
                         backgroundColor: '#5631E8',
                         borderRadius: 12,
                         barThickness: 24
@@ -775,9 +658,9 @@
             window.weekChart = new Chart(ctxWeek, {
                 type: 'doughnut',
                 data: {
-                    labels: {{ week_labels | tojson }},
+                    labels: chartData.week_labels || [],
                     datasets: [{
-                        data: {{ week_data | tojson }},
+                        data: chartData.week_data || [],
                         backgroundColor: ['#5631E8', '#818CF8', '#C7D2FE', '#FCD34D', '#10B981'],
                         borderWidth: 0,
                         cutout: '80%'
@@ -861,15 +744,26 @@
         }
 
         function syncCrisisBalance() {
-            document.getElementById('crisis-balance').value = {{ total_amount }}.toFixed(2);
+            const chartData = getDashChartData();
+            document.getElementById('crisis-balance').value = (chartData.total_amount || 0).toFixed(2);
             calcCrisis();
+        }         calcCrisis();
         }
 
         document.addEventListener('DOMContentLoaded', () => {
             initCharts();
             crisisLoad();
+            // Liquid Glass macOS v2.7.0 unificado: refracción real sobre .glass-card
+            setTimeout(() => {
+                if (window.liquidGL) {
+                    try { liquidGL({ target: '.glass-card', snapshot: 'body', resolution: 1.0, refraction: 0.015, bevelDepth: 0.08, bevelWidth: 0.15, frost: 0.05, shadow: true, specular: true }); }
+                    catch (e) { document.documentElement.classList.add('no-webgl'); }
+                    if (!window.WebGLRenderingContext) document.documentElement.classList.add('no-webgl');
+                }
+            }, 500);
         });
     </script>
+    <script>lucide.createIcons();</script>
 </body>
 </html>
         
