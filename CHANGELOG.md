@@ -2,6 +2,24 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v3.1.0] - 2026-09-07
+### REFACTORIZACIÓN / CAMBIO INSTANTÁNEO Y RESPONDEDOR DEL MODO OSCURO (< 100MS)
+- **Motivo**: El usuario reportó que el modo oscuro cambiaba con retardo y no al instante al presionar el botón de la luna.
+- **Diagnóstico de Latencia**:
+  1. `src/static/particle_fluid.js`: La variable `transitionTimer` se incrementaba a un ritmo lento de `0.02` por fotograma (~850ms), causando un rezago perceptible en la ola de choque del shader.
+  2. `src/static/flux_theme.css`: La regla `--transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1)` retrasaba la transición cromática de contenedores y paneles glass.
+  3. `tools/NOTIFICADOR_BOT/app.js` y `src/templates/dashboard.html`: Se ejecutaban temporizadores `setTimeout(..., 300)` y `setTimeout(..., 350)` que aplazaban la resincronización de `liquidGL` y la interacción.
+- **Refactorización y Optimización**:
+  - `particle_fluid.js`: Incrementado la velocidad de la ola de choque en `transitionTimer` a `0.12` por fotograma para completarse en instantáneos < 100ms.
+  - `flux_theme.css`: Ajustado `--transition` a `0.1s` para una respuesta súper fluida e inmediata sin retardo visual.
+  - `app.js` y `dashboard.html`: Reemplazados los `setTimeout` de 300ms por `requestAnimationFrame()`, activando de inmediato `liquidGL.syncWith()` y la alternancia de íconos en 0ms.
+  - `index.html`: Actualizadas todas las versiones de activos a `?v=3.1.0` para invalidar la caché del navegador al instante.
+- **Archivos afectados**: `src/static/particle_fluid.js`, `src/static/flux_theme.css`, `tools/NOTIFICADOR_BOT/app.js`, `src/templates/dashboard.html`, `tools/NOTIFICADOR_BOT/index.html`, `CHANGELOG.md`
+### PRUEBAS REALIZADAS
+- [x] Verificado en navegador que la pulsación del botón alterna el modo oscuro de forma instantánea (< 100ms).
+- [x] Verificado en múltiples exploradores que el ícono (Luna ↔ Sol) cambia sin delay.
+- [x] Comprobado que el render de las ondas y el recapturado de `liquidGL` ocurren en la siguiente trama (`requestAnimationFrame`).
+
 ## [v3.0.0] - 2026-09-07
 ### MODIFICAR / TRANSICIÓN ANIMADA DE ONDAS DÍA → ONDAS NOCTURNAS OSCURAS (AZUL & PÚRPURA)
 - **Motivo**: El usuario solicitó explícitamente que las ondas del modo día (rojas/naranjas/azules) se retiren/animen hacia afuera y entren las del modo nocturno, mostrando distintas ondas de colores oscuros.

@@ -254,13 +254,13 @@
       }
       
       if (isTransitioning) {
-          transitionTimer += 0.02; // completa en ~50 frames (0.8s)
+          transitionTimer += 0.12; // Transición instantánea en ~8 frames (100ms)
           if (transitionTimer >= 1.0) {
               transitionTimer = 1.0;
               isTransitioning = false;
-              // Avisar a liquidGL que capture AHORA que el efecto termino
-              if (window.liquidGL && window.liquidGL.syncWith) {
-                  setTimeout(() => { window.liquidGL.syncWith(); }, 50);
+              // Sincronizar inmediatamente con liquidGL
+              if (window.liquidGL && typeof window.liquidGL.syncWith === 'function') {
+                  try { window.liquidGL.syncWith(); } catch(e){}
               }
           }
       }

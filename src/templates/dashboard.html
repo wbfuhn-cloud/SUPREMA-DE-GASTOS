@@ -424,9 +424,9 @@
             updateThemeIcon(next);
             updateChartsTheme(next);
             
-            // Sync liquidGL snapshot after CSS transition
+            // Sync liquidGL snapshot instantly
             if (window.liquidGL) {
-                setTimeout(() => { liquidGL.syncWith(); }, 350);
+                requestAnimationFrame(() => { liquidGL.syncWith(); });
             }
         }
 

@@ -969,7 +969,7 @@ function toggleTheme() {
     updateThemeIcon(next);
     
     if (window.liquidGL && typeof window.liquidGL.syncWith === 'function') {
-        setTimeout(() => { try { window.liquidGL.syncWith(); } catch(e){} }, 300);
+        requestAnimationFrame(() => { try { window.liquidGL.syncWith(); } catch(e){} });
     }
 }
 
