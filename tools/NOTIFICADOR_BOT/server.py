@@ -31,13 +31,19 @@ SCAN_STATE = {
     'stop_event': threading.Event()
 }
 
+from flask import make_response
+
 @app.route('/')
 def index():
-    return send_from_directory('.', 'index.html')
+    res = make_response(send_from_directory('.', 'index.html'))
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return res
 
 @app.route('/<path:path>')
 def serve_static(path):
-    return send_from_directory('.', path)
+    res = make_response(send_from_directory('.', path, max_age=0))
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return res
 
 def update_progress_callback(message, value):
     SCAN_STATE['message'] = message

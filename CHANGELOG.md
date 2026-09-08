@@ -2,6 +2,20 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v3.2.0] - 2026-09-07
+### CORREGIR / DESACTIVACIÓN DE CACHÉ DE NAVEGADOR Y REFACTORIZACIÓN TOTAL DE MODO OSCURO
+- **Motivo**: En exploradores externos las modificaciones no se reflejaban al presionar el botón debido al almacenamiento en caché HTTP (24h) y duplicidad de IDs de HTML.
+- **Diagnóstico y Corrección de Fondo**:
+  1. `src/server.py` y `tools/NOTIFICADOR_BOT/server.py`: Se eliminó el parámetro `max_age=86400` y se añadieron cabeceras explícitas `Cache-Control: no-cache, no-store, must-revalidate` a todas las rutas de estáticos para que cualquier explorador externo inmediatamente sirva la última versión sin requerir vaciado manual de caché.
+  2. `src/static/flux_theme.css`: Se ajustaron las reglas de `body` para que las ondas laterales oscuras no se superpongan ni filtren en el modo claro (`body:not(.light)`), asignando propiedades completas de fondo y color a ambos modos.
+  3. `src/templates/details.html`: Eliminada la duplicación de botones `#theme-btn` y etiquetas huérfanas que rompían el manejador de eventos del DOM.
+  4. Sincronización Global de Plantillas: Actualizadas `dashboard.html`, `transactions.html`, `details.html`, e `index.html` con inicialización inmediata del atributo `data-theme`, versión `?v=3.1.0` y sincronización via `requestAnimationFrame`.
+- **Archivos afectados**: `src/server.py`, `tools/NOTIFICADOR_BOT/server.py`, `src/static/flux_theme.css`, `src/templates/transactions.html`, `src/templates/details.html`, `src/templates/dashboard.html`, `CHANGELOG.md`
+### PRUEBAS REALIZADAS
+- [x] Verificado que las cabeceras HTTP `Cache-Control: no-cache` previenen el cacheo estático de 24 horas en exploradores externos.
+- [x] Eliminada la regla CSS sobrante que forzaba fondos oscuros sobre la clase `.light`.
+- [x] Removida la duplicidad del ID `#theme-btn` en la vista de analíticos.
+
 ## [v3.1.0] - 2026-09-07
 ### REFACTORIZACIÓN / CAMBIO INSTANTÁNEO Y RESPONDEDOR DEL MODO OSCURO (< 100MS)
 - **Motivo**: El usuario reportó que el modo oscuro cambiaba con retardo y no al instante al presionar el botón de la luna.

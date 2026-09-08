@@ -1,18 +1,18 @@
 <!DOCTYPE html>
-<html lang="es" class="light">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Analíticos | Gastos Raccoon</title>
     
     <!-- Restaurar tema ANTES del CSS para evitar flash -->
-    <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.className=t;})();</script>
+    <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.className=t;document.documentElement.setAttribute('data-theme',t);})();</script>
 
     <!-- Scripts & Styles -->
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/html2canvas.min.js"></script>
-    <script src="/static/liquidGL.js?v=2.7.0"></script>
+    <script src="/static/liquidGL.js?v=3.1.0"></script>
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -41,9 +41,9 @@
     </script>
 
     
-    <link rel="stylesheet" href="/static/flux_theme.css?v=2.7.1">
+    <link rel="stylesheet" href="/static/flux_theme.css?v=3.1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script defer src="/static/particle_fluid.js?v=2.7.0"></script>
+    <script defer src="/static/particle_fluid.js?v=3.1.0"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
 </head>
@@ -76,14 +76,6 @@
             </div>
         </div>
         <div class="page-content">
-
-            <a href="/bolsa" class="text-xs font-bold px-4 py-2 rounded-full transition-all text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>Inversiones IA</a>
-        </nav>
-
-        <button onclick="toggleTheme()" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400" id="theme-btn">
-            <i data-lucide="moon" class="w-5 h-5"></i>
-        </button>
-    </header>
 
     <div class="max-w-[1400px] mx-auto w-full">
         
@@ -333,24 +325,32 @@
         // Theme Toggle
         function toggleTheme() {
             const html = document.documentElement;
-            const next = html.classList.contains('dark') ? 'light' : 'dark';
-            html.className = next;
-            localStorage.setItem('theme', next);
+            const isDark = html.classList.contains('dark') || html.getAttribute('data-theme') === 'dark';
+            const next = isDark ? 'light' : 'dark';
+            
+            if (next === 'dark') {
+                html.classList.add('dark'); html.classList.remove('light'); html.setAttribute('data-theme', 'dark');
+            } else {
+                html.classList.add('light'); html.classList.remove('dark'); html.setAttribute('data-theme', 'light');
+            }
+            
+            try { localStorage.setItem('theme', next); } catch(e){}
             updateThemeIcon(next);
             updateChartsTheme();
             
-            // Sync liquidGL snapshot after CSS transition
-            if (window.liquidGL) {
-                setTimeout(() => { liquidGL.syncWith(); }, 350);
+            if (window.liquidGL && typeof window.liquidGL.syncWith === 'function') {
+                requestAnimationFrame(() => { try { window.liquidGL.syncWith(); } catch(e){} });
             }
         }
 
         function updateThemeIcon(theme) {
             const btn = document.getElementById('theme-btn');
-            if(btn) {
-                const icon = theme === 'dark' ? 'sun' : 'moon';
-                btn.innerHTML = `<i data-lucide="${icon}"></i>`;
-                if(window.lucide) { lucide.createIcons(); }
+            if (btn) {
+                btn.innerHTML = theme === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>';
+                btn.setAttribute('title', theme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro');
+                if (window.lucide && typeof lucide.createIcons === 'function') {
+                    try { lucide.createIcons(); } catch(e){}
+                }
             }
         }
 

@@ -922,11 +922,15 @@ from flask import send_from_directory
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
-    return send_from_directory(
+    res = make_response(send_from_directory(
         os.path.join(root_dir, 'src', 'static'), 
         filename, 
-        max_age=86400  # Cache 24 horas
-    )
+        max_age=0
+    ))
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    res.headers['Pragma'] = 'no-cache'
+    res.headers['Expires'] = '0'
+    return res
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 def _empty_page(title: str, body: str) -> str:
