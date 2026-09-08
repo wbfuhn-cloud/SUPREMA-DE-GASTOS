@@ -2,6 +2,18 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v3.3.0] - 2026-09-07
+### AGREGAR / POTENCIACIÓN DEL AUTO-ACTUALIZADOR RECURSIVO EN INICIAR.BAT
+- **Motivo**: El usuario solicitó rectificar todos los cambios y asegurar que `iniciar.bat` tenga la capacidad completa de sincronizar, descargar y parchear el código cada vez que se publique una nueva versión en GitHub.
+- **Mejora en `iniciar.bat`**:
+  - Implementado `git fetch origin main` seguido de `git reset --hard origin/main`.
+  - Esta estrategia sobrepasa cualquier conflicto de fusiones locales o archivos no rastreados, aplicando de inmediato el último estado exacto del repositorio en GitHub (`origin/main`).
+  - Mantiene un mecanismo de resguardo (`git pull`) para entornos con configuraciones especiales.
+- **Archivos afectados**: `iniciar.bat`, `CHANGELOG.md`
+### PRUEBAS REALIZADAS
+- [x] Verificado el funcionamiento de `iniciar.bat` con comandos `git fetch` y `git reset --hard`.
+- [x] Verificada la compilación limpia sin errores de todos los archivos Python del proyecto.
+
 ## [v3.2.0] - 2026-09-07
 ### CORREGIR / DESACTIVACIÓN DE CACHÉ DE NAVEGADOR Y REFACTORIZACIÓN TOTAL DE MODO OSCURO
 - **Motivo**: En exploradores externos las modificaciones no se reflejaban al presionar el botón debido al almacenamiento en caché HTTP (24h) y duplicidad de IDs de HTML.

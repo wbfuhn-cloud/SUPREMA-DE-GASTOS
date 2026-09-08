@@ -28,14 +28,20 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5000"') do (
 echo [OK] Puertos liberados correctamente.
 echo.
 
-:: 2. Auto-actualizador desde GitHub
-echo [*] Buscando actualizaciones en GitHub...
+:: 2. Auto-actualizador desde GitHub (v3.3.0)
+echo [*] Buscando y aplicando actualizaciones desde GitHub (origin/main)...
 if exist ".git" (
-    git pull origin main
-    if %ERRORLEVEL% NEQ 0 (
-        echo [!] Advertencia: No se pudo actualizar desde GitHub. Continuando con la version local...
+    git fetch origin main >nul 2>&1
+    git reset --hard origin/main >nul 2>&1
+    if %ERRORLEVEL% EQU 0 (
+        echo [OK] Sistema actualizado y parcheado correctamente desde GitHub.
     ) else (
-        echo [OK] Sistema actualizado.
+        git pull origin main
+        if %ERRORLEVEL% NEQ 0 (
+            echo [!] Advertencia: No se pudo conectar a GitHub. Continuando en modo local...
+        ) else (
+            echo [OK] Sistema actualizado correctamente.
+        )
     )
 ) else (
     echo [!] No es un repositorio de Git. Saltando actualizacion.
