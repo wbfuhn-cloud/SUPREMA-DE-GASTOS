@@ -52,12 +52,17 @@
     bgTexture.wrapS = THREE.MirroredRepeatWrapping;
     bgTexture.wrapT = THREE.MirroredRepeatWrapping;
 
-    let currentScroll = window.scrollY || 0;
-    let targetScroll = window.scrollY || 0;
+    let currentScroll = 0;
+    let targetScroll = 0;
     
-    window.addEventListener('scroll', () => {
-        targetScroll = window.scrollY;
-    }, { passive: true });
+    window.addEventListener('scroll', (e) => {
+        const target = e.target;
+        const st = target.scrollTop || window.scrollY || 0;
+        // Filtrar pequeños divs, solo reaccionar si es el documento o el contenedor principal
+        if (target === document || (target.clientHeight && target.clientHeight > window.innerHeight * 0.5)) {
+            targetScroll = st;
+        }
+    }, { passive: true, capture: true });
 
     const uniforms = {
       u_time: { value: 0.0 },
@@ -65,7 +70,8 @@
       u_isDark: { value: document.documentElement.classList.contains('dark') ? 1.0 : 0.0 },
       u_texture: { value: bgTexture },
       u_imageAspect: { value: imageAspect },
-      u_scrollY: { value: 0.0 }
+      u_scrollY: { value: 0.0 },
+      u_themeTransition: { value: 1.0 }
     };
 
     const vertexShader = `
@@ -83,6 +89,7 @@
       uniform sampler2D u_texture;
       uniform float u_imageAspect;
       uniform float u_scrollY;
+      uniform float u_themeTransition;
       varying vec2 vUv;
 
       vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -127,6 +134,21 @@
         
         vec2 centeredUv = uv - 0.5;
         
+        // Theme Transition Shockwave
+        float pulse = sin(u_themeTransition * 3.14159);
+        float distToCenter = length(centeredUv);
+        float waveRadius = u_themeTransition * 1.5;
+        float waveThickness = 0.2;
+        // FIX: En WebGL 1, smoothstep falla si edge0 >= edge1
+        float ring1 = smoothstep(waveRadius - waveThickness, waveRadius, distToCenter);
+        float ring2 = 1.0 - smoothstep(waveRadius, waveRadius + waveThickness, distToCenter);
+        float ring = ring1 * ring2;
+                   
+        if (pulse > 0.0) {
+            vec2 outwardDir = normalize(centeredUv);
+            centeredUv += outwardDir * ring * 0.15 * pulse;
+        }
+        
         // Scroll Parallax offset
         float scrollOffset = (u_scrollY / u_resolution.y) * 0.15; // 15% parallax strength
         centeredUv.y -= scrollOffset;
@@ -158,18 +180,37 @@
         color = mix(vec3(luminance), color, 1.5);
         
         // Dynamic adaptation to theme (Light vs Dark)
-        // Dark mode: keep it saturated, deepen shadows, cool tint
-        vec3 colorDark = color * vec3(0.5, 0.6, 0.85);
-        colorDark -= 0.05;
-        colorDark = max(colorDark, 0.0);
+        // Night Mode: Distinct, flowing dark night waves (Indigo, Deep Cobalt, Royal Violet)
+        vec2 uvNight = centeredUv * 1.8;
+        float wave1 = snoise(vec2(uvNight.x * 2.5 + time * 0.25, uvNight.y * 1.5 - time * 0.20));
+        float wave2 = snoise(vec2(uvNight.x * 4.0 - time * 0.35, uvNight.y * 3.0 + time * 0.30));
+        float wave3 = snoise(vec2(uvNight.x * 1.2 + time * 0.15, uvNight.y * 2.5 + time * 0.10));
         
-        // Light mode: bright but slightly washed
-        vec3 colorLight = color * 1.05;
-        colorLight += 0.05;
+        // Layered organic dark wave contours
+        float darkShape = smoothstep(-0.4, 0.6, wave1 + wave2 * 0.4 + wave3 * 0.3);
+        float secondaryShape = smoothstep(-0.2, 0.8, wave2 - wave1 * 0.5);
         
-        vec3 finalColor = mix(colorLight, colorDark, u_isDark);
+        vec3 deepSpace = vec3(0.03, 0.05, 0.12);     // Fondo obsidiana noche
+        vec3 cobaltNight = vec3(0.0, 0.30, 0.90);   // Ondas azul cobalto nocturno (#004CD9)
+        vec3 violetNight = vec3(0.45, 0.10, 0.85);  // Ondas violeta nocturno (#731AD9)
+        vec3 cyanGlow = vec3(0.0, 0.60, 0.90);     // Brillo en crestas de las ondas nocturnas
         
-        gl_FragColor = vec4(finalColor, 1.0);
+        vec3 colorDark = mix(deepSpace, cobaltNight, darkShape);
+        colorDark = mix(colorDark, violetNight, secondaryShape * 0.75);
+        colorDark += cyanGlow * pow(clamp(wave1 * wave2, 0.0, 1.0), 2.0) * 0.40; // Crestas luminosas
+        
+        // Light mode: bright, vibrant liquid fluid from bg_liquid.jpg texture
+        vec3 colorLight = color * 1.05 + 0.05;
+        
+        // El nuevo tema entra como una ola de choque desde el centro
+        float targetThemeWeight = 1.0 - smoothstep(waveRadius - 0.12, waveRadius + 0.12, distToCenter);
+        float oldTheme = 1.0 - u_isDark;
+        float currentPixelTheme = mix(oldTheme, u_isDark, targetThemeWeight);
+        
+        vec3 finalColor = mix(colorLight, colorDark, currentPixelTheme);
+        float finalAlpha = mix(1.0, 0.88, currentPixelTheme);
+        
+        gl_FragColor = vec4(finalColor, finalAlpha);
       }
     `;
 
@@ -192,6 +233,10 @@
     // RECTIFICA v2.7.0: respeta prefers-reduced-motion (congela aurora)
     var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    let targetTheme = document.documentElement.classList.contains('dark') ? 1.0 : 0.0;
+    let transitionTimer = 1.0;
+    let isTransitioning = false;
+
     function animate() {
       requestAnimationFrame(animate);
       if (!reduceMotion) {
@@ -201,8 +246,27 @@
       currentScroll += (targetScroll - currentScroll) * 0.1;
       uniforms.u_scrollY.value = currentScroll;
       
-      const isDark = document.documentElement.classList.contains('dark');
-      uniforms.u_isDark.value += ((isDark ? 1.0 : 0.0) - uniforms.u_isDark.value) * 0.05;
+      const currentHTMLTheme = document.documentElement.classList.contains('dark') ? 1.0 : 0.0;
+      if (currentHTMLTheme !== targetTheme) {
+          targetTheme = currentHTMLTheme;
+          isTransitioning = true;
+          transitionTimer = 0.0;
+      }
+      
+      if (isTransitioning) {
+          transitionTimer += 0.02; // completa en ~50 frames (0.8s)
+          if (transitionTimer >= 1.0) {
+              transitionTimer = 1.0;
+              isTransitioning = false;
+              // Avisar a liquidGL que capture AHORA que el efecto termino
+              if (window.liquidGL && window.liquidGL.syncWith) {
+                  setTimeout(() => { window.liquidGL.syncWith(); }, 50);
+              }
+          }
+      }
+      
+      uniforms.u_themeTransition.value = transitionTimer;
+      uniforms.u_isDark.value = targetTheme;
 
       renderer.render(scene, camera);
     }

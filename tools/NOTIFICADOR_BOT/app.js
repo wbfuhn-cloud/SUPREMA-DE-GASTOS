@@ -1,16 +1,26 @@
 
-// Auto-initialize Lucide Icons on DOM changes (v2.7.1: guard document.body puede ser null si el script carga en <head>)
+// Auto-initialize Lucide Icons on DOM changes (Fix v2.7.3: Infinite loop prevention)
 if (typeof MutationObserver !== 'undefined' && document.body) {
     const observer = new MutationObserver((mutations) => {
         let shouldUpdate = false;
         for (let mutation of mutations) {
-            if (mutation.addedNodes.length) {
-                shouldUpdate = true;
-                break;
+            for (let node of mutation.addedNodes) {
+                if (node.nodeType === 1) { // Node.ELEMENT_NODE
+                    if (node.hasAttribute && node.hasAttribute('data-lucide')) shouldUpdate = true;
+                    else if (node.querySelector && node.querySelector('[data-lucide]')) shouldUpdate = true;
+                }
             }
         }
         if (shouldUpdate && window.lucide) {
-            try { lucide.createIcons(); } catch (e) { /* iconos opcionales */ }
+            observer.disconnect(); // Pausar para evitar loop infinito
+            try { 
+                lucide.createIcons(); 
+                // Limpiar el atributo de los SVG generados para que no se vuelvan a procesar
+                document.querySelectorAll('svg[data-lucide]').forEach(svg => {
+                    svg.removeAttribute('data-lucide');
+                });
+            } catch (e) { /* iconos opcionales */ }
+            observer.observe(document.body, { childList: true, subtree: true });
         }
     });
     try { observer.observe(document.body, { childList: true, subtree: true }); } catch (e) { /* noop */ }
@@ -477,8 +487,8 @@ async function checkScanStatus() {
         const res = await fetch(`${API_URL}/scan/status`);
         const data = await res.json();
         
-        progressBar.style.width = `${data.progress * 100}%`;
-        progressText.textContent = data.message;
+        if (progressBar) progressBar.style.width = `${(data.progress || 0) * 100}%`;
+        if (progressText) progressText.textContent = data.message || '';
         
         if (!data.is_scanning && isScanning) {
             // Scan just finished
@@ -519,19 +529,23 @@ async function fetchResults() {
 
 // UI Rendering
 function updateMarketContext(ctx) {
-    if (!ctx) return;
+    if (!ctx || !ctx.regime) return;
+    const regime = String(ctx.regime);
     let icon = "globe", colorClass = "neutral";
-    if (ctx.regime.includes("ALCISTA")) { icon = "arrow-trend-up"; colorClass = "alcista"; }
-    else if (ctx.regime.includes("BAJISTA")) { icon = "arrow-trend-down"; colorClass = "bajista"; }
-    
+    if (regime.includes("ALCISTA")) { icon = "arrow-trend-up"; colorClass = "alcista"; }
+    else if (regime.includes("BAJISTA")) { icon = "arrow-trend-down"; colorClass = "bajista"; }
+
+    if (!marketStatus) return;
     marketStatus.innerHTML = `
         <span class="status-indicator ${colorClass}">
-            <i class="fa-solid fa-${icon}"></i> ${ctx.regime} | VIX: ${ctx.vix} | SPY vs SMA200: ${ctx.spy_vs_sma200}%
+            <i class="fa-solid fa-${icon}"></i> ${regime} | VIX: ${ctx.vix ?? '?'} | SPY vs SMA200: ${ctx.spy_vs_sma200 ?? '?'}%
         </span>
     `;
 }
 
 function getBadgeClass(viability) {
+    if (viability === undefined || viability === null) return "evitar";
+    viability = String(viability);
     if (viability.includes("EXCELENTE")) return "alta";
     if (viability.includes("BUENA")) return "moderado";
     if (viability.includes("MODERADA")) return "neutro";
@@ -921,7 +935,7 @@ function updateTslaMonitor() {
     const reasons = [];
     if (rsi < 35) reasons.push(`<li><i data-lucide="check"></i> RSI en sobreventa (${rsi})</li>`);
     if (rsi > 65) reasons.push(`<li><i data-lucide="alert-triangle"></i> RSI en sobrecompra (${rsi})</li>`);
-    if (tslaData.Viabilidad.includes("EXCELENTE")) reasons.push(`<li><i class="fa-solid fa-star"></i> Viabilidad Excelente detectada</li>`);
+    if (String(tslaData.Viabilidad || "").includes("EXCELENTE")) reasons.push(`<li><i class="fa-solid fa-star"></i> Viabilidad Excelente detectada</li>`);
     
     tslaContent.innerHTML = `
         <div class="tsla-price">$${tslaData.Price.toFixed(2)}</div>
@@ -935,31 +949,52 @@ function updateTslaMonitor() {
     `;
 }
 
-/* ── Global Theme Toggle ── */
+/* ── Global Theme Toggle (v2.7.7) ── */
 function toggleTheme() {
     const html = document.documentElement;
-    const next = html.classList.contains('dark') ? 'light' : 'dark';
+    const isDark = html.classList.contains('dark') || html.getAttribute('data-theme') === 'dark';
+    const next = isDark ? 'light' : 'dark';
+    
     if (next === 'dark') {
-        html.classList.add('dark'); html.setAttribute('data-theme', 'dark');
+        html.classList.add('dark');
         html.classList.remove('light');
+        html.setAttribute('data-theme', 'dark');
     } else {
-        html.classList.add('light'); html.setAttribute('data-theme', 'light');
+        html.classList.add('light');
         html.classList.remove('dark');
+        html.setAttribute('data-theme', 'light');
     }
-    localStorage.setItem('theme', next);
+    
+    try { localStorage.setItem('theme', next); } catch (e) {}
     updateThemeIcon(next);
+    
+    if (window.liquidGL && typeof window.liquidGL.syncWith === 'function') {
+        setTimeout(() => { try { window.liquidGL.syncWith(); } catch(e){} }, 300);
+    }
 }
 
 function updateThemeIcon(theme) {
     const btn = document.getElementById('theme-btn');
     if (btn) {
         btn.innerHTML = theme === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>';
-        if(window.lucide) { lucide.createIcons(); }
+        btn.setAttribute('title', theme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro');
+        if (window.lucide && typeof lucide.createIcons === 'function') {
+            try { lucide.createIcons(); } catch(e) {}
+        }
     }
 }
 
 (function() {
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    document.documentElement.className = savedTheme;
-    updateThemeIcon(savedTheme);
+    const savedTheme = (function() {
+        try { return localStorage.getItem('theme') || 'dark'; } catch(e) { return 'dark'; }
+    })();
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add(savedTheme);
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => updateThemeIcon(savedTheme));
+    } else {
+        updateThemeIcon(savedTheme);
+    }
 })();

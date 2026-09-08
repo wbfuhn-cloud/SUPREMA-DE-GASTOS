@@ -81,14 +81,19 @@
   --danger-bg: hsla(350, 80%, 45%, 0.1);
 }
 
-/* FONDOS FIJOS MULTICAPA */
-body {
+/* FONDOS FIJOS MULTICAPA (v3.0.0) */
+:root[data-theme="dark"] body, html.dark body, body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: var(--bg-main) !important;
+  background-color: #060913 !important;
   background-image: 
-    radial-gradient(at 0% 0%, hsla(253, 16%, 7%, 1) 0, transparent 50%),
-    radial-gradient(at 50% 0%, hsla(225, 39%, 30%, 0.4) 0, transparent 50%),
-    radial-gradient(at 100% 0%, hsla(339, 49%, 30%, 0.4) 0, transparent 50%) !important;
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' viewBox='0 0 300 1000'%3E%3Cpath fill='rgba(0,82,255,0.55)' d='M0,0 C220,200 80,700 300,1000 L0,1000 Z'/%3E%3Cpath fill='rgba(139,92,246,0.45)' d='M0,0 C150,280 220,780 90,1000 L0,1000 Z'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' viewBox='0 0 300 1000'%3E%3Cpath fill='rgba(139,92,246,0.55)' d='M300,0 C80,200 220,700 0,1000 L300,1000 Z'/%3E%3Cpath fill='rgba(0,82,255,0.45)' d='M300,0 C150,280 80,780 210,1000 L300,1000 Z'/%3E%3C/svg%3E"),
+    radial-gradient(at 50% 0%, hsla(217, 100%, 55%, 0.40) 0, transparent 70%),
+    radial-gradient(at 0% 0%, hsla(253, 70%, 18%, 0.9) 0, transparent 55%),
+    radial-gradient(at 100% 100%, hsla(270, 70%, 18%, 0.9) 0, transparent 55%) !important;
+  background-position: left center, right center, center, center, center !important;
+  background-size: 25vw 100vh, 25vw 100vh, auto, auto, auto !important;
+  background-repeat: no-repeat !important;
   background-attachment: fixed !important;
   color: var(--text-main) !important;
   -webkit-font-smoothing: antialiased;
@@ -99,10 +104,13 @@ body {
 }
 
 :root[data-theme="light"] body, html.light body {
+  background-color: #F8FAFC !important;
   background-image: 
     radial-gradient(at 0% 0%, hsla(253, 100%, 97%, 1) 0, transparent 50%),
     radial-gradient(at 50% 0%, hsla(225, 100%, 90%, 0.6) 0, transparent 50%),
     radial-gradient(at 100% 0%, hsla(339, 100%, 90%, 0.6) 0, transparent 50%) !important;
+  background-position: center, center, center !important;
+  background-size: auto, auto, auto !important;
 }
 
 /* ANIMACIONES */
@@ -346,8 +354,10 @@ body {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 24px 70px rgba(0,0,0,0.5), 0 0 0 1px hsla(217,91%,60%,0.25), 0 8px 32px var(--primary-glow) !important;
   background-color: var(--glass-bg-hover) !important;
 }
-/* layering sobre canvas WebGL refracción */
-#bg-particle-fluid { position: fixed !important; inset: 0; z-index: -1 !important; pointer-events: none !important; }
+/* layering sobre canvas WebGL refracción (v3.0.0) */
+#bg-particle-fluid { position: fixed !important; inset: 0; z-index: -1 !important; pointer-events: none !important; opacity: 1; transition: opacity 0.4s ease; }
+/* Ocultar el WebGL de día cuando se entra a modo oscuro para dar paso a las ondas nocturnas oscuras de alta definición */
+:root[data-theme="dark"] #bg-particle-fluid, html.dark #bg-particle-fluid { display: none !important; }
 canvas[data-liquid-ignore] { z-index: 0 !important; pointer-events: none !important; }
 .app-layout, .main-area, .page-content { position: relative; z-index: 1; }
 /* tablas macOS dentro de glass */

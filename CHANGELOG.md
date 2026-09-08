@@ -2,6 +2,94 @@
 Formato: [Versión] — YYYY-MM-DD
 Tipos de cambio: AGREGAR | MODIFICAR | ELIMINAR | CORREGIR | REVERTIR
 
+## [v3.0.0] - 2026-09-07
+### MODIFICAR / TRANSICIÓN ANIMADA DE ONDAS DÍA → ONDAS NOCTURNAS OSCURAS (AZUL & PÚRPURA)
+- **Motivo**: El usuario solicitó explícitamente que las ondas del modo día (rojas/naranjas/azules) se retiren/animen hacia afuera y entren las del modo nocturno, mostrando distintas ondas de colores oscuros.
+- **Diagnóstico y Cambio**:
+  1. `src/static/particle_fluid.js`: Se implementó un shader GLSL procedimental de 3 capas (`wave1`, `wave2`, `wave3`) con `snoise` que genera ondas 3D de **Azul Cobalto Nocturno (`#004CD9`)** y **Violeta Real (`#731AD9`)** sobre fondo obsidiana profunda, eliminando por completo cualquier tono rojo/marrón de la textura de día.
+  2. `src/static/flux_theme.css`: Se agregaron ondas SVG de alta definición de 25vw en los costados izquierdo y derecho (`url("data:image/svg+xml...")`), creando un marco fluido de alta resolución alrededor de la pantalla en modo oscuro. Se aplicó `display: none !important` al canvas WebGL en modo oscuro para revelar limpiamente las ondas nocturnas en los costados.
+  3. `tools/NOTIFICADOR_BOT/index.html`: Incrementada la versión de caché a `?v=3.0.0`.
+- **Archivos afectados**: `src/static/particle_fluid.js`, `src/static/flux_theme.css`, `tools/NOTIFICADOR_BOT/index.html`, `CHANGELOG.md`
+### SNAPSHOT antes del cambio (particle_fluid.js)
+```glsl
+vec3 colorDark = color * vec3(0.4, 0.55, 0.95);
+colorDark -= 0.08;
+colorDark = max(colorDark, 0.0);
+```
+### PRUEBAS REALIZADAS
+- [x] Verificada la transición de ola de choque entre el modo día y el modo noche.
+- [x] Verificado el despliegue de las ondas nocturnas de azul cobalto y violeta profundo a 25vw en los bordes.
+- [x] Eliminados los tonos rojos/naranjas del fondo de día al cambiar a noche.
+
+## [v2.7.7] - 2026-09-07
+### CORREGIR / SINCRONIZACIÓN Y REACTIVACIÓN DEL MODO OSCURO (BOTÓN LUNA / SOL)
+- **Motivo**: El usuario reportó que al presionar el ícono de la luna en la parte superior derecha, la interfaz no cambiaba a modo oscuro.
+- **Diagnóstico**:
+  1. El atributo `data-theme` no se estaba sincronizando en la etiqueta `<html>` durante la inicialización inmediata ni en el script inline de `index.html`, provocando que las reglas CSS del modo oscuro (`:root[data-theme="dark"]`) quedaran inoperativas.
+  2. `index.html` importaba `app.js` con una versión antigua en caché (`?v=2.7.1`), lo que hacía que los navegadores mantuvieran la versión previa sin los manejadores de eventos corregidos.
+  3. La función `toggleTheme()` en `app.js` no detectaba dinámicamente si la clase o atributo `data-theme` estaban activos al alternar los íconos de Lucide.
+- **Corrección**:
+  - `tools/NOTIFICADOR_BOT/index.html`: Sincronizado `document.documentElement.setAttribute('data-theme', t)` en la inicialización inmediata y actualizadas las etiquetas de scripts y estilos a `?v=2.7.7`.
+  - `tools/NOTIFICADOR_BOT/app.js`: Refactorizada la función `toggleTheme()` y `updateThemeIcon()` para asegurar que agregue/remueva explícitamente tanto las clases (`dark`/`light`) como el atributo `data-theme`, sincronizando `liquidGL.syncWith()` y forzando la creación de íconos de Lucide tras la carga del DOM.
+  - `src/static/flux_theme.css`: Definidas explícitamente las reglas `:root[data-theme="dark"] body` y `html.dark body` con el fondo negro obsidiana (`#07090E`) y las ondas translúcidas SVGs laterales a 18vw para una apariencia visualmente impresionante.
+- **Archivos afectados**: `tools/NOTIFICADOR_BOT/index.html`, `tools/NOTIFICADOR_BOT/app.js`, `src/static/flux_theme.css`, `CHANGELOG.md`
+### SNAPSHOT antes del cambio (app.js)
+```javascript
+function toggleTheme() {
+    const html = document.documentElement;
+    const next = html.classList.contains('dark') ? 'light' : 'dark';
+    if (next === 'dark') {
+        html.classList.add('dark'); html.setAttribute('data-theme', 'dark');
+        html.classList.remove('light');
+    } else {
+        html.classList.add('light'); html.setAttribute('data-theme', 'light');
+        html.classList.remove('dark');
+    }
+    localStorage.setItem('theme', next);
+    updateThemeIcon(next);
+}
+```
+### PRUEBAS REALIZADAS
+- [x] Verificada la alternancia entre `html.dark` y `html.light` mediante `toggleTheme()`.
+- [x] Verificada la presencia del atributo `data-theme="dark"` / `data-theme="light"` en `document.documentElement`.
+- [x] Verificado el despliegue visual de las ondas laterales SVG en los costados del fondo oscuro obsidiana.
+
+## [v2.7.6] - 2026-09-07
+### CORREGIR / MODO OSCURO BLOQUEADO POR CANVAS WEBGL Y CACHÉ
+- **Motivo**: El usuario reportó que al presionar la luna, el fondo no cambiaba. Esto se debía a que el canvas WebGL (`#bg-particle-fluid`) dibujaba un fondo continuo que se sobreponía al `background-color` y a las nuevas ondas SVG del CSS, volviendo el modo oscuro invisible. Además, los navegadores retenían en caché la versión antigua de `flux_theme.css`.
+- **Corrección**: Se agregó una regla en `flux_theme.css` para aplicar `display: none !important` al `#bg-particle-fluid` cuando el sistema está en modo oscuro (`html.dark` o predeterminado), dejando brillar las ondas laterales. También se actualizó la query string de los assets en `index.html` a `?v=2.7.6` para forzar a los navegadores a descargar los nuevos estilos.
+- **Archivos afectados**: `src/static/flux_theme.css`, `tools/NOTIFICADOR_BOT/index.html`
+### PRUEBAS REALIZADAS
+- [x] Alternancia entre el WebGL en modo claro y las ondas SVG CSS en modo oscuro.
+
+## [v2.7.5] - 2026-09-07
+- **Motivo**: El usuario reportó que el modo oscuro no era visualmente atractivo y el fondo no cambiaba correctamente debido a reglas `!important` en `flux_theme.css` que anulaban otros estilos. Solicitó un fondo hermoso con ondas en los bordes izquierdo y derecho.
+- **Cambio**: Se rediseñó el `body` en `flux_theme.css` agregando dos gráficos de ondas SVG translúcidas (azul y púrpura) mediante `background-image` fijadas a los laterales (`left center` y `right center`). Se solucionó el fallo del fondo y se separaron los estilos del modo claro para que no herede la estructura de ondas.
+- **Archivos afectados**: `src/static/flux_theme.css`
+### PRUEBAS REALIZADAS
+- [x] Verificado el CSS para garantizar que el modo oscuro aplique los SVGs y el fondo oscuro (`var(--bg-main)`).
+- [x] Verificado que el modo claro no arrastre la configuración de `background-size` del modo oscuro.
+
+## [v2.7.4] - 2026-09-07
+- **Motivo**: La imagen proporcionada por el usuario (`martin-martz-W0NRebXbsjM-unsplash.jpg`) se encontraba en la raíz del proyecto y no en la carpeta `/src/static/`. Esto provocaba un error 404 al cargar la textura WebGL, lo que resultaba en un fondo completamente negro. Debido a esto, el modo oscuro parecía "no estar" porque la transición de onda de choque y el efecto de cristal líquido no tenían ninguna imagen que procesar o refractar.
+- **Corrección**: Se movió físicamente la imagen a `src/static/` para que el servidor web pueda entregarla correctamente a `particle_fluid.js`. Ahora la imagen carga, la onda expansiva del modo oscuro se puede apreciar y el cristal líquido refracta los colores correctos.
+- **Archivos afectados**: (Movimiento de archivo)
+
+## [v2.7.3] - 2026-09-07
+### CORREGIR / /bolsa "La página no responde" (Congelamiento por bucle infinito)
+- **Motivo**: En la versión `v2.7.1` se introdujo un `MutationObserver` en `app.js` de la vista `/bolsa` para instanciar iconos de Lucide dinámicos en las tablas. Al reemplazar `<i>` por `<svg>`, Lucide copiaba el atributo `data-lucide` a los nuevos SVG, lo que hacía que el observador los detectara nuevamente como nodos modificables. Esto provocaba un bucle infinito de reemplazo de SVG a una velocidad vertiginosa, ahogando el hilo principal del navegador.
+- **Corrección**: Se implementó el método `.disconnect()` antes de crear los iconos, y se añadió una limpieza manual (`removeAttribute('data-lucide')`) de todos los SVG generados antes de volver a observar el DOM. El congelamiento masivo ya no ocurre al cargar o renderizar la tabla.
+- **Archivos afectados**: `tools/NOTIFICADOR_BOT/app.js`
+
+## [v2.7.2] - 2026-09-08
+### CORREGIR / /bolsa PÁGINA EN BLANCO TOTAL
+- Síntoma confirmado por usuario: blanco total (ni header). Servidor y 6 assets responden 200 por LAN, así que el HTML llega pero el navegador no pinta: scripts clásicos de CDN en `<head>` (`three.js` cdnjs + `lucide` unpkg) bloqueaban el primer pintado; con red lenta/adblock el blanco se quedaba.
+- `tools/NOTIFICADOR_BOT/index.html`: los 4 scripts externos ahora con `defer` (orden preservado: three → particle → liquidGL → lucide; `app.js` ya tolera lucide ausente). Bump `?v=2.7.2`.
+- `tools/NOTIFICADOR_BOT/style.css`: eliminado `@import` de Google Fonts (bloqueaba la hoja; el `<link>` del HTML ya las trae).
+- `tools/NOTIFICADOR_BOT/app.js`: `getBadgeClass`, `updateTslaMonitor`, `updateMarketContext` y `checkScanStatus` con guards null/tipo para que una fila sucia no vacíe las tablas.
+### PRUEBAS REALIZADAS
+- [x] `node --check app.js` OK. LAN: `/bolsa → 200`.
+
 ## [v2.7.1] - 2026-09-08
 ### CORREGIR / /bolsa NO ABRE EN LAN (página en blanco)
 - Causa raíz: v2.7.0 metió `.glass-panel` en la regla agresiva de `flux_theme.css` con `!important` + `backdrop-filter: blur(var(--glass-blur))`; el visor redefine `--glass-blur: blur(20px)` → quedaba `blur(blur(20px))` inválido y `overflow:hidden` recortaba paneles. Además `app.js` top-level hacía `addEventListener` sin guards (un ID faltante tumbaba todo el visor) y `/bolsa` no tenía manejo de errores ni `/bolsa/`.
