@@ -14,7 +14,7 @@ except ImportError:
     print("Error: No se pudieron importar los módulos de análisis.")
     sys.exit(1)
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'visor_config.json')
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'visor_config.json')
 
 def load_config():
     if os.path.exists(CONFIG_PATH):

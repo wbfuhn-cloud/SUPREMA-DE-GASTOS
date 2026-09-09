@@ -28,30 +28,57 @@ db_manager = DatabaseManager()
 visor_import_error: str | None = None
 
 sys.path.append(os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT'))
-try:
-    from stock_scanner import fetch_stock_data, get_cache_stats, clear_cache, get_ticker_cache_stats, clear_ticker_cache, process_single_ticker  # type: ignore
-    from risk_calculator import calculate_position_size  # type: ignore
-    from config_manager import ConfigManager  # type: ignore
-    from portfolio_analyzer import analyze_portfolio  # type: ignore
-    from recommendation_learner import get_learner  # type: ignore
-    from ml_predictor import get_ml_predictor  # type: ignore
-except ImportError as e:
-    visor_import_error = str(e)
-    logger.error(f"Error importando módulos de VISOR: {e}")
-    fetch_stock_data = None
-    process_single_ticker = None # type: ignore
-    calculate_position_size = lambda *args, **kwargs: {}  # Fallback callable
-    ConfigManager = None  # type: ignore
-    analyze_portfolio = None  # type: ignore
-    get_learner = None # type: ignore
-    get_ml_predictor = None # type: ignore
+fetch_stock_data = process_single_ticker = None
+get_cache_stats = clear_cache = get_ticker_cache_stats = clear_ticker_cache = None
+calculate_position_size = analyze_portfolio = None
+get_learner = get_ml_predictor = None
+config_mgr = None
+_visor_loaded = False
+_visor_lock = threading.Lock()
 
-config_mgr = ConfigManager() if ConfigManager is not None else None
+
+def _ensure_visor_loaded():
+    """Carga pandas/sklearn y el motor bursátil solo cuando se usa Bolsa."""
+    global _visor_loaded, visor_import_error, fetch_stock_data, process_single_ticker
+    global get_cache_stats, clear_cache, get_ticker_cache_stats, clear_ticker_cache
+    global calculate_position_size, analyze_portfolio, get_learner, get_ml_predictor, config_mgr
+    if _visor_loaded:
+        return
+    with _visor_lock:
+        if _visor_loaded:
+            return
+        try:
+            from stock_scanner import fetch_stock_data as _fetch, get_cache_stats as _stats, clear_cache as _clear, get_ticker_cache_stats as _ticker_stats, clear_ticker_cache as _ticker_clear, process_single_ticker as _process  # type: ignore
+            from risk_calculator import calculate_position_size as _position  # type: ignore
+            from config_manager import ConfigManager  # type: ignore
+            from portfolio_analyzer import analyze_portfolio as _analyze  # type: ignore
+            from recommendation_learner import get_learner as _learner  # type: ignore
+            from ml_predictor import get_ml_predictor as _predictor  # type: ignore
+            fetch_stock_data, process_single_ticker = _fetch, _process
+            get_cache_stats, clear_cache = _stats, _clear
+            get_ticker_cache_stats, clear_ticker_cache = _ticker_stats, _ticker_clear
+            calculate_position_size, analyze_portfolio = _position, _analyze
+            get_learner, get_ml_predictor = _learner, _predictor
+            config_mgr = ConfigManager()
+            visor_import_error = None
+        except ImportError as exc:
+            visor_import_error = str(exc)
+            logger.error(f"Error importando módulos de VISOR: {exc}")
+        finally:
+            _visor_loaded = True
 
 # ─── Flask ───────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 CORS(app)
+
+
+@app.before_request
+def _load_bolsa_dependencies_on_demand():
+    bolsa_api_prefixes = ('/api/bolsa', '/api/scan', '/api/learner', '/api/ml',
+                          '/api/cache', '/api/risk', '/api/portfolio', '/api/dashboard-updates')
+    if request.path.startswith('/bolsa') or request.path.startswith(bolsa_api_prefixes):
+        _ensure_visor_loaded()
 
 @app.template_filter('format_currency')
 def format_currency_filter(val, decimals=2):
@@ -153,8 +180,8 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
             from stock_scanner import get_market_regime  # type: ignore
             market_ctx = get_market_regime()
             SCAN_STATE['market_context'] = market_ctx
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"No se pudo obtener contexto de mercado: {e}")
 
         data = fetch_stock_data(
             progress_callback=_progress,
@@ -201,7 +228,8 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
                     try:
                         with open(os.path.join(root_dir, "data", "chat_id.txt"), "r") as f:
                             chat_id = f.read().strip()
-                    except: pass
+                    except Exception as e:
+                        logger.warning(f"No se pudo leer chat_id.txt: {e}")
                 
                 if token and chat_id:
                     requests.post(
@@ -315,7 +343,8 @@ def run_live_alert_loop():
                             try:
                                 with open(os.path.join(root_dir, "data", "chat_id.txt"), "r") as f:
                                     chat_id = f.read().strip()
-                            except: pass
+                            except Exception as e:
+                                logger.warning(f"No se pudo leer chat_id.txt: {e}")
                             
                         if token and chat_id:
                             import requests
@@ -345,11 +374,20 @@ def run_live_alert_loop():
         # Dormir el intervalo configurado
         _time.sleep(interval * 60)
 
+_background_tasks_started = False
+
+
 def start_background_tasks():
     """Iniciar tareas de fondo DESPUÉS de que el servidor esté corriendo.
     
     Esto evita que hilos pesados compitan por CPU durante el arranque.
     """
+    global _background_tasks_started
+    if _background_tasks_started:
+        return
+    _background_tasks_started = True
+    _ensure_visor_loaded()
+
     # Cargar persistencia de escaneo en hilo separado (521KB JSON)
     def _deferred_load():
         _time.sleep(3)  # Esperar a que el servidor esté listo
@@ -480,9 +518,15 @@ def transactions_view():
         if year:
             expenses = db_manager.get_expenses_by_year(year)
         else:
-            expenses = db_manager.get_all_expenses()
+            # Evita construir un documento de varios MB en la vista general.
+            # El historial completo sigue accesible por las pestañas de año.
+            expenses = db_manager.get_expenses(limit=150)
 
         data = TransactionsViewGenerator.generate_html(expenses, selected_year=year, available_years=available_years)
+        data['transactions_hint'] = (
+            'Mostrando los 150 movimientos más recientes. Elige un año para consultar su historial completo.'
+            if year is None and len(expenses) >= 150 else ''
+        )
         html = render_template('transactions.html', **data)
         _set_cached_view(cache_key, html)
         return _html_response(html)
@@ -689,7 +733,36 @@ def bolsa_health():
             'scan_engine': bool(fetch_stock_data),
         }
         ok = all([checks['index_html'], checks['app_js'], checks['style_css']])
-        return jsonify({'status': 'ok' if ok else 'error', 'checks': checks}), (200 if ok else 503)
+        
+        # Ampliación para Fase 1
+        db_path = os.path.join(root_dir, 'learner.db')
+        return jsonify({
+            'status': 'ok' if ok else 'error', 
+            'version': '1.1.0',
+            'build': 'stable',
+            'db_exists': os.path.exists(db_path),
+            'provider': 'yfinance',
+            'checks': checks
+        }), (200 if ok else 503)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/bolsa/readiness', methods=['GET'])
+def bolsa_readiness():
+    # Solo 200 cuando API, base y UI mínima puedan servir tráfico
+    try:
+        db_path = os.path.join(root_dir, 'learner.db')
+        if not os.path.exists(db_path):
+            return jsonify({'status': 'error', 'message': 'Base de datos no encontrada'}), 503
+        
+        visor_dir = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT')
+        if not os.path.isfile(os.path.join(visor_dir, 'index.html')):
+            return jsonify({'status': 'error', 'message': 'UI mínima no encontrada'}), 503
+            
+        if not fetch_stock_data:
+            return jsonify({'status': 'error', 'message': 'Motor de escaneo no disponible'}), 503
+            
+        return jsonify({'status': 'ready'}), 200
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -950,16 +1023,21 @@ def _error_page(error: str) -> str:
     )
 
 
-def run_server(host: str = '0.0.0.0', port: int = 5050, debug: bool = False, bot_instance=None):
+def run_server(host: str = '0.0.0.0', port: int = 5050, debug: bool = False,
+               bot_instance=None, start_jobs: bool | None = None):
     if bot_instance:
         app.config['BOT_INSTANCE'] = bot_instance
     logger.warning(f"[TUNNEL] Servidor iniciado en http://{host}:{port}")
     
-    # Iniciar procesos de fondo diferidos (Bolsa y Persistencia)
-    start_background_tasks()
+    if start_jobs is None:
+        start_jobs = os.environ.get('ENABLE_BOLSA_BACKGROUND_TASKS', '0') == '1'
+    if start_jobs:
+        start_background_tasks()
+    else:
+        logger.info("Tareas automáticas de Bolsa desactivadas (inicio rápido).")
     
     app.run(host=host, port=port, debug=debug, use_reloader=False, threaded=True)
 
 
 if __name__ == '__main__':
-    run_server(debug=True)
+    run_server(debug=False)

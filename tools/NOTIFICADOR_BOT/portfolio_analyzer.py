@@ -164,10 +164,8 @@ def get_portfolio_summary() -> str:
     import json
     from datetime import datetime
 
-    config_path = os.path.join(os.path.dirname(__file__), 'visor_config.json')
-    # Fallback a config del servidor
-    if not os.path.exists(config_path):
-        config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'database', 'visor_config.json')
+    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    config_path = os.path.join(root_dir, 'visor_config.json')
 
     portfolio = {}
     if os.path.exists(config_path):

@@ -5,7 +5,10 @@ from datetime import datetime
 class ConfigManager:
     """Gestor de configuraciones y preferencias del usuario"""
     
-    def __init__(self, config_file='visor_config.json'):
+    def __init__(self, config_file=None):
+        if config_file is None:
+            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            config_file = os.path.join(root_dir, 'visor_config.json')
         self.config_file = config_file
         self.config = self.load_config()
     

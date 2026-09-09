@@ -84,17 +84,8 @@
 /* FONDOS FIJOS MULTICAPA (v3.1.0) */
 :root[data-theme="dark"] body, html.dark body, body:not(.light) {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: #060913 !important;
-  background-image: 
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' viewBox='0 0 300 1000'%3E%3Cpath fill='rgba(0,82,255,0.55)' d='M0,0 C220,200 80,700 300,1000 L0,1000 Z'/%3E%3Cpath fill='rgba(139,92,246,0.45)' d='M0,0 C150,280 220,780 90,1000 L0,1000 Z'/%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' viewBox='0 0 300 1000'%3E%3Cpath fill='rgba(139,92,246,0.55)' d='M300,0 C80,200 220,700 0,1000 L300,1000 Z'/%3E%3Cpath fill='rgba(0,82,255,0.45)' d='M300,0 C150,280 80,780 210,1000 L300,1000 Z'/%3E%3C/svg%3E"),
-    radial-gradient(at 50% 0%, hsla(217, 100%, 55%, 0.40) 0, transparent 70%),
-    radial-gradient(at 0% 0%, hsla(253, 70%, 18%, 0.9) 0, transparent 55%),
-    radial-gradient(at 100% 100%, hsla(270, 70%, 18%, 0.9) 0, transparent 55%) !important;
-  background-position: left center, right center, center, center, center !important;
-  background-size: 25vw 100vh, 25vw 100vh, auto, auto, auto !important;
-  background-repeat: no-repeat !important;
-  background-attachment: fixed !important;
+  background-color: transparent !important; /* Permitir que particle_fluid.js sea visible */
+  background-image: none !important;
   color: var(--text-main) !important;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
@@ -418,6 +409,81 @@ select.form-input {
   cursor: pointer;
 }
 
+/* Date Inputs & Calendario - Gris ad-hoc (#94A3B8 / slate-400) */
+input[type="date"].form-input,
+input[type="date"] {
+  color: #94A3B8 !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.65) brightness(0.95);
+  opacity: 0.75;
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  filter: invert(0.85);
+}
+
+/* Date Wrapper en Tablas de Transacciones */
+.date-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  color: #94A3B8;
+  cursor: pointer;
+  transition: var(--transition);
+  position: relative;
+  user-select: none;
+}
+
+.date-wrapper:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.date-icon {
+  font-size: 16px !important;
+  color: #94A3B8 !important;
+  line-height: 1;
+  vertical-align: middle;
+  transition: color 0.2s ease;
+}
+
+.date-wrapper:hover .date-icon {
+  color: #CBD5E1 !important;
+}
+
+.date-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94A3B8 !important;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.date-wrapper:hover .date-label {
+  color: #CBD5E1 !important;
+}
+
+.date-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+
 /* Modales */
 .modal-overlay {
   position: fixed;
@@ -507,3 +573,23 @@ html.no-webgl .glass-card, html.no-webgl .liquidGL {
 .h2-flux { font-size: 1.6rem; font-weight: 700; }
 .h3-flux { font-size: 1.1rem; font-weight: 600; }
 .kicker-flux { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; }
+
+/* ── VIEW TRANSITIONS (Animación de modo claro/oscuro) ── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+html[data-theme="dark"], html.dark {
+    background-color: #060913;
+}
+html[data-theme="light"], html.light {
+    background-color: #f1f5f9;
+}

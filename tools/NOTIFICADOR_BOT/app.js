@@ -28,6 +28,12 @@ if (typeof MutationObserver !== 'undefined' && document.body) {
 
 const API_URL = "/api";
 
+function escapeHtml(value) {
+    const node = document.createElement('div');
+    node.textContent = String(value ?? '');
+    return node.innerHTML;
+}
+
 // Elements
 const btnStart = document.getElementById("btn-start");
 const btnStop = document.getElementById("btn-stop");
@@ -87,18 +93,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
         const res = await fetch(`${API_URL}/portfolio/config`);
         const data = await res.json();
-        if (data.tickers && data.tickers.length > 0 && document.getElementById("portfolio-input")) {
-            document.getElementById("portfolio-input").value = data.tickers.join(', ');
-        } else {
-            // Fallback a localStorage si la API está vacía
-            const savedPortfolio = localStorage.getItem('savedPortfolio');
-            if (savedPortfolio && document.getElementById("portfolio-input")) {
-                document.getElementById("portfolio-input").value = savedPortfolio;
-            }
+        if (!res.ok || data.status === 'error') {
+            throw new Error(data.message || `HTTP ${res.status}`);
         }
     } catch (e) {
         console.error("Error cargando portafolio:", e);
     }
+
+    // 5. Cargar y analizar portafolio automáticamente al iniciar
+    analyzePortfolio();
 });
 
 // Event Listeners (v2.7.1: guards null — un elemento faltante tumbaba todo el visor en blanco)
@@ -406,60 +409,166 @@ async function handleAddPortfolio() {
 }
 
 async function analyzePortfolio() {
-    portfolioTbody.innerHTML = `<tr><td colspan="6"><i data-lucide="loader" class="lucide-spin"></i> Analizando Cartera...</td></tr>`;
+    if (!portfolioTbody) return;
+    portfolioTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 28px; color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin" style="margin-right:8px; color:var(--primary-color)"></i> Analizando Cartera en tiempo real...</td></tr>`;
     
     try {
         const res = await fetch(`${API_URL}/portfolio/analyze`, { method: "POST" });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
         
         if (data.status === 'ok') {
             portfolioTbody.innerHTML = '';
-            if (data.results.length === 0) {
-                portfolioTbody.innerHTML = `<tr class="empty-row"><td colspan="6">Agrega tus posiciones arriba para que el asesor las monitoree.</td></tr>`;
+            const totalCountEl = document.getElementById('port-total-count');
+            const totalPlEl = document.getElementById('port-total-pl');
+
+            if (!data.results || data.results.length === 0) {
+                portfolioTbody.innerHTML = `<tr class="empty-row"><td colspan="6" style="text-align:center; padding: 32px; color:var(--text-muted);">No tienes posiciones registradas. Agrega tus tickers arriba para que el asesor las monitoree en tiempo real.</td></tr>`;
+                if (totalCountEl) totalCountEl.textContent = '0 activos';
+                if (totalPlEl) totalPlEl.textContent = '$0.00 USD';
                 return;
             }
+
+            if (totalCountEl) totalCountEl.textContent = `${data.results.length} activos`;
             
+            let totalPlUsd = 0;
+            let totalCostUsd = 0;
+            let hasValidCost = false;
+
             data.results.forEach(row => {
                 const tr = document.createElement('tr');
                 if (row.error) {
                     tr.innerHTML = `
-                        <td><strong>${row.ticker}</strong></td>
-                        <td colspan="4" style="color:var(--danger-color)">${row.error}</td>
-                        <td><button onclick="removePortfolioItem('${row.ticker}')" class="btn sm-btn danger-btn"><i class="fa-solid fa-trash"></i></button></td>
+                        <td><strong style="font-size:15px; color:var(--text-primary);">${escapeHtml(row.ticker)}</strong></td>
+                        <td colspan="4" style="color:var(--danger-color); font-weight:600;">${escapeHtml(row.error)}</td>
+                        <td style="text-align:center;">
+                            <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
                     `;
                 } else {
                     let badgeClass = "neutro";
-                    if(row.verdict.includes("COMPRA") || row.verdict.includes("AUMENTA")) badgeClass = "alta";
-                    else if(row.verdict.includes("MANTEN") || row.verdict.includes("MEDIA")) badgeClass = "moderado";
-                    else if(row.verdict.includes("VENTA") || row.verdict.includes("EVITAR") || row.verdict.includes("REDUCIR")) badgeClass = "evitar";
+                    const verdictUpper = String(row.verdict || "").toUpperCase();
+                    if (verdictUpper.includes("COMPRA") || verdictUpper.includes("AUMENTA")) badgeClass = "alta";
+                    else if (verdictUpper.includes("MANTEN") || verdictUpper.includes("MEDIA")) badgeClass = "moderado";
+                    else if (verdictUpper.includes("VENTA") || verdictUpper.includes("EVITAR") || verdictUpper.includes("REDUCIR")) badgeClass = "evitar";
                     
-                    const plColor = row.pl_pct >= 0 ? "var(--success-color)" : "var(--danger-color)";
-                    const plSign = row.pl_pct >= 0 ? "+" : "";
-                    
-                    const levFlag = row.is_leveraged ? ' <span class="badge evitar" style="font-size:9px">APALANCADO</span>' : '';
+                    const plPct = Number(row.pl_pct) || 0;
+                    const plVal = Number(row.pl_val) || 0;
+                    const plMxn = Number(row.pl_mxn) || 0;
+                    const plColor = plPct >= 0 ? "var(--success-color)" : "var(--danger-color)";
+                    const plSign = plPct >= 0 ? "+" : "";
+
+                    if (row.pl_val !== undefined && row.entry_price > 0 && row.qty > 0) {
+                        totalPlUsd += plVal;
+                        totalCostUsd += (Number(row.entry_price) * Number(row.qty));
+                        hasValidCost = true;
+                    }
+
+                    const levFlag = row.is_leveraged ? ' <span class="badge evitar" style="font-size:10px; margin-left:6px; letter-spacing:0.4px;">APALANCADO</span>' : '';
+                    const reasonsList = Array.isArray(row.reasons) ? row.reasons.join(" • ") : "";
+
                     tr.innerHTML = `
-                        <td><strong>${row.ticker}${levFlag}</strong></td>
-                        <td>${row.qty} @ $${row.entry_price}</td>
-                        <td>$${row.price} <br><small style="color:var(--text-secondary)">$${row.price_mxn} MXN</small></td>
-                        <td><span class="badge ${badgeClass}">${row.verdict}</span></td>
-                        <td style="color: ${plColor}; font-weight: bold;">
-                            ${plSign}${row.pl_pct}% <br>
-                            <small style="opacity:0.8">${plSign}$${row.pl_val} USD</small>
-                            ${row.pl_mxn ? `<br><small style="opacity:0.7">${plSign}$${row.pl_mxn} MXN</small>` : ''}
+                        <td>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <strong style="font-size:16px; letter-spacing:-0.3px; color:var(--text-primary);">${escapeHtml(row.ticker)}</strong>
+                                ${levFlag}
+                            </div>
                         </td>
                         <td>
-                            <button onclick="removePortfolioItem('${row.ticker}')" class="btn sm-btn danger-btn" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+                            <div style="font-weight:700; color:var(--text-primary); font-size:15px;">${row.qty} <span style="font-size:12px; color:var(--text-secondary); font-weight:500;">acc</span></div>
+                            <small style="color:var(--text-muted); font-size:12px;">@ $${row.entry_price ? Number(row.entry_price).toFixed(2) : '0.00'} USD</small>
+                        </td>
+                        <td>
+                            <div style="font-weight:800; font-size:15px; color:var(--text-primary);">$${row.price ? Number(row.price).toFixed(2) : '0.00'} <small style="font-size:11px; color:var(--text-secondary);">USD</small></div>
+                            <small style="color:var(--text-secondary); font-weight:600;">$${row.price_mxn ? Number(row.price_mxn).toFixed(2) : '0.00'} MXN</small>
+                        </td>
+                        <td>
+                            <div style="display:flex; flex-direction:column; gap:4px; max-width:320px;">
+                                <span class="badge ${badgeClass}" style="width:fit-content; font-size:11px; padding:4px 10px; letter-spacing:0.3px;">${escapeHtml(row.verdict || 'EVALUANDO')}</span>
+                                ${reasonsList ? `<span style="font-size:11px; color:var(--text-secondary); line-height:1.35; white-space:normal;" title="${escapeHtml(reasonsList)}">${escapeHtml(reasonsList)}</span>` : ''}
+                            </div>
+                        </td>
+                        <td style="color: ${plColor}; font-weight: 800; font-size:15px;">
+                            ${plSign}${plPct.toFixed(2)}%
+                            <div style="font-size:12px; font-weight:700; opacity:0.9; margin-top:3px;">
+                                ${plSign}$${plVal.toFixed(2)} USD
+                                ${plMxn ? ` <span style="font-weight:500; opacity:0.8;">(${plSign}$${plMxn.toFixed(2)} MXN)</span>` : ''}
+                            </div>
+                        </td>
+                        <td style="text-align:center;">
+                            <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar ${escapeHtml(row.ticker)} de la cartera" style="padding:8px 12px; border-radius:10px;">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
                         </td>
                     `;
+
+                    // Click en fila para ver desglose en panel superior
+                    tr.style.cursor = "pointer";
+                    tr.title = "Haz clic para ver análisis en el panel superior";
+                    tr.addEventListener("click", (e) => {
+                        if (e.target.closest('button')) return;
+                        inspectPortfolioTicker(row);
+                    });
                 }
                 portfolioTbody.appendChild(tr);
             });
+
+            if (totalPlEl) {
+                if (hasValidCost && totalCostUsd > 0) {
+                    const totalPlPct = (totalPlUsd / totalCostUsd) * 100;
+                    const sign = totalPlUsd >= 0 ? "+" : "";
+                    const color = totalPlUsd >= 0 ? "var(--success-color)" : "var(--danger-color)";
+                    totalPlEl.innerHTML = `<span style="color:${color}; font-weight:800;">${sign}$${totalPlUsd.toFixed(2)} USD (${sign}${totalPlPct.toFixed(2)}%)</span>`;
+                } else {
+                    totalPlEl.innerHTML = `<span style="color:var(--text-primary); font-weight:700;">$${totalPlUsd.toFixed(2)} USD</span>`;
+                }
+            }
+        } else {
+            throw new Error(data.message || 'No se pudo analizar el portafolio');
         }
     } catch (e) {
         console.error("Error analyzing portfolio", e);
-        portfolioTbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color)">Error de conexión</td></tr>`;
+        portfolioTbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color); padding: 24px; text-align:center;">No se pudo cargar el portafolio. ${escapeHtml(e.message || 'Error de conexión')}</td></tr>`;
     }
 }
+
+function scrollToPortfolio() {
+    const el = document.getElementById("portfolio-section");
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add("highlight-pulse");
+        setTimeout(() => el.classList.remove("highlight-pulse"), 1600);
+    }
+}
+window.scrollToPortfolio = scrollToPortfolio;
+
+function inspectPortfolioTicker(row) {
+    const existing = allResults.find(r => r.Ticker === row.ticker);
+    if (existing) {
+        selectTicker(existing, null);
+    } else {
+        selectTicker({
+            Ticker: row.ticker,
+            Price: row.price,
+            Price_MXN: row.price_mxn,
+            Viabilidad: row.verdict || 'Portafolio',
+            Score: 70,
+            ML_Score: 70,
+            ML_Confidence: 'Cartera',
+            Score_Tech: 28,
+            Score_Fund: 27,
+            Score_Liq: 15,
+            RSI: row.rsi,
+            Is_Leveraged: row.is_leveraged,
+            Nota: Array.isArray(row.reasons) ? row.reasons.join(', ') : 'Posición activa en portafolio'
+        }, null);
+    }
+    const details = document.querySelector(".ticker-details");
+    if (details) {
+        details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+window.inspectPortfolioTicker = inspectPortfolioTicker;
 
 async function removePortfolioItem(ticker) {
     if (!confirm(`¿Eliminar ${ticker} del portafolio?`)) return;
@@ -515,15 +624,27 @@ async function checkScanStatus() {
 }
 
 async function fetchResults() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-        const res = await fetch(`${API_URL}/scan/results`);
+        const res = await fetch(`${API_URL}/scan/results`, { signal: controller.signal });
+        clearTimeout(timeoutId);
         const data = await res.json();
         
         allResults = data.results || [];
         updateMarketContext(data.market_context);
         renderTables();
     } catch (e) {
+        clearTimeout(timeoutId);
         console.error("Error fetching results", e);
+        if (e.name === 'AbortError') {
+            const errDiv = document.createElement('div');
+            errDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%, -50%);background:#1f2937;color:#f87171;padding:20px;border-radius:12px;z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,0.5);text-align:center;';
+            errDiv.innerHTML = `<h3><i class="fa-solid fa-triangle-exclamation"></i> Timeout</h3>
+                                <p>Servidor disponible, motor de Bolsa no responde a /api/scan/results en 5s.</p>
+                                <button onclick="location.reload()" class="btn primary-btn" style="margin-top:15px">Reintentar</button>`;
+            document.body.appendChild(errDiv);
+        }
     }
 }
 

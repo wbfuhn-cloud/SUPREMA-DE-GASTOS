@@ -71,6 +71,7 @@ class LocalDatabaseManager(BaseDatabaseManager):
         self.db_path = db_path or os.path.join(db_dir, 'expenses.db')
 
         self._cache_data: List[Dict] = []
+        self._cache_key = None
         self._cache_last_check: float = 0.0
         self._cache_ttl: float = 8.0
         self._write_lock = threading.RLock()
@@ -201,7 +202,8 @@ class LocalDatabaseManager(BaseDatabaseManager):
         return self.get_expenses(limit=-1, include_paid=include_paid)
 
     def get_expenses(self, limit: int = 200, offset: int = 0, include_paid: bool = True) -> List[Dict]:
-        if (time.time() - self._cache_last_check) < self._cache_ttl and self._cache_data:
+        cache_key = (limit, offset, include_paid)
+        if (time.time() - self._cache_last_check) < self._cache_ttl and self._cache_data and self._cache_key == cache_key:
             return self._cache_data
         try:
             conn = self._get_connection()
@@ -211,6 +213,7 @@ class LocalDatabaseManager(BaseDatabaseManager):
             expenses = [dict(r) for r in rows]
             with self._cache_lock:
                 self._cache_data = expenses
+                self._cache_key = cache_key
                 self._cache_last_check = time.time()
             return expenses
         except sqlite3.Error as e:
@@ -370,6 +373,7 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
         }
         
         self._cache_data: List[Dict] = []
+        self._cache_key = None
         self._cache_last_check: float = 0.0
         self._cache_ttl: float = 15.0
         self._cache_lock = threading.RLock()
@@ -486,7 +490,8 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
         return self.get_expenses(limit=-1, include_paid=include_paid)
 
     def get_expenses(self, limit: int = 200, offset: int = 0, include_paid: bool = True) -> List[Dict]:
-        if (time.time() - self._cache_last_check) < self._cache_ttl and self._cache_data:
+        cache_key = (limit, offset, include_paid)
+        if (time.time() - self._cache_last_check) < self._cache_ttl and self._cache_data and self._cache_key == cache_key:
             return self._cache_data
             
         query = 'SELECT * FROM expenses ' + ('' if include_paid else "WHERE status = 'pending' ") + 'ORDER BY date DESC, id DESC'
@@ -495,6 +500,7 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
         expenses = self._query(query)
         with self._cache_lock:
             self._cache_data = expenses
+            self._cache_key = cache_key
             self._cache_last_check = time.time()
         return expenses
 

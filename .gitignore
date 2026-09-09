@@ -19,8 +19,11 @@ venv/
 
 # ── Bases de datos ─────────────────────────────────────
 *.db
+*.db-shm
+*.db-wal
 database/*.db
 data/*.db
+backups/
 
 # ── Binarios grandes ──────────────────────────────────
 bin/

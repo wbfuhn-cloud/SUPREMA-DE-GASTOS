@@ -17,7 +17,7 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="/static/html2canvas.min.js"></script>
-    
+    <script defer src="/static/theme-controller.js"></script>
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
@@ -47,9 +47,6 @@
 
     
     <link rel="stylesheet" href="/static/flux_theme.css?v=2.7.1">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script defer src="/static/particle_fluid.js?v=2.7.0"></script>
-    <script defer src="/static/liquidGL.js?v=2.7.0"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
 </head>
@@ -406,44 +403,13 @@
         function openModal(id) { document.getElementById(id).classList.add('active'); }
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-        // Theme Handling
-        function toggleTheme() {
-            const html = document.documentElement;
-            const isDark = html.classList.contains('dark') || html.getAttribute('data-theme') === 'dark';
-            const next = isDark ? 'light' : 'dark';
-            
-            if (next === 'dark') {
-                html.classList.add('dark'); html.classList.remove('light'); html.setAttribute('data-theme', 'dark');
-            } else {
-                html.classList.add('light'); html.classList.remove('dark'); html.setAttribute('data-theme', 'light');
+        window.addEventListener('themechange', (e) => {
+            if (typeof updateChartsTheme === 'function') {
+                try { updateChartsTheme(e.detail.theme); } catch(e){}
             }
-            
-            try { localStorage.setItem('theme', next); } catch(e){}
-            updateThemeIcon(next);
-            if (typeof updateChartsTheme === 'function') { try { updateChartsTheme(next); } catch(e){} }
-            
-            if (window.liquidGL && typeof window.liquidGL.syncWith === 'function') {
-                requestAnimationFrame(() => { try { window.liquidGL.syncWith(); } catch(e){} });
-            }
-        }
+        });
 
-        function updateThemeIcon(theme) {
-            const btn = document.getElementById('theme-btn');
-            if (btn) {
-                btn.innerHTML = theme === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>';
-                btn.setAttribute('title', theme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro');
-                if (window.lucide && typeof lucide.createIcons === 'function') {
-                    try { lucide.createIcons(); } catch(e){}
-                }
-            }
-        }
 
-        // Init Theme on Load
-        (function() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            document.documentElement.className = savedTheme;
-            updateThemeIcon(savedTheme);
-        })();
 
         // Mark as Paid
         async function markAsPaid(button) {
@@ -535,16 +501,7 @@
                     btn.textContent = 'Guardar Transacción';
                     return;
                 }
-                try {
-                    await fetch('/api/add-category', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: newCatName })
-                    });
-                    expenseData.category = newCatName.toUpperCase();
-                } catch (e) {
-                    console.error(e);
-                }
+                expenseData.category = newCatName.toUpperCase();
             }
 
             try {
@@ -751,14 +708,6 @@
         document.addEventListener('DOMContentLoaded', () => {
             initCharts();
             crisisLoad();
-            // Liquid Glass macOS v2.7.0 unificado: refracción real sobre .glass-card
-            setTimeout(() => {
-                if (window.liquidGL) {
-                    try { liquidGL({ target: '.glass-card', snapshot: 'body', resolution: 1.0, refraction: 0.015, bevelDepth: 0.08, bevelWidth: 0.15, frost: 0.05, shadow: true, specular: true }); }
-                    catch (e) { document.documentElement.classList.add('no-webgl'); }
-                    if (!window.WebGLRenderingContext) document.documentElement.classList.add('no-webgl');
-                }
-            }, 500);
         });
     </script>
     <script>lucide.createIcons();</script>
