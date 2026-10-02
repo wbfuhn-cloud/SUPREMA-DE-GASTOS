@@ -186,7 +186,7 @@
                             <div id="ai-accuracy" style="font-size:24px; font-weight:800; color:var(--success-color)">--%</div>
                         </div>
                         <div class="stat-card">
-                            <h4 style="margin:0; font-size:11px; text-transform:uppercase; color:var(--text-secondary)">Promedio a 1 día</h4>
+                            <h4 style="margin:0; font-size:11px; text-transform:uppercase; color:var(--text-secondary)">Retorno neto promedio</h4>
                             <div id="ai-avg-change" style="font-size:24px; font-weight:800; color:white">--%</div>
                         </div>
                         <div class="stat-card">
@@ -200,7 +200,7 @@
                     </div>
                     
                     <div style="padding: 12px 20px; color: #8B5CF6; font-size: 13px; font-weight: 700; background: rgba(139, 92, 246, 0.1); border-bottom: 1px solid var(--glass-border);">
-                        <i class="fa-solid fa-brain"></i> <strong>Aprendizaje Activo Supervisado:</strong> El motor ajusta sus algoritmos evaluando 18 variables técnicas y penalizando errores pasados.
+                        <i class="fa-solid fa-brain"></i> <strong>Aprendizaje supervisado y auditable:</strong> Los resultados del mercado y la opinión humana se registran por separado. Ningún comentario modifica el modelo; todo ajuste requiere revisión y aprobación explícitas.
                         <button id="btn-refresh-ai" class="btn primary-btn sm-btn" style="float: right; margin-top: -4px;"><i class="fa-solid fa-sync"></i> Actualizar</button>
                     </div>
 
@@ -212,7 +212,7 @@
                                     <th>Ticker</th>
                                     <th>Score Rec.</th>
                                     <th>Precio Rec.</th>
-                                    <th>Resultado (1d)</th>
+                                    <th>Resultado neto</th>
                                     <th>Evaluación</th>
                                 </tr>
                             </thead>
@@ -271,8 +271,20 @@
                         <div id="ai-confidence-content">
                             <p class="placeholder-text">Calculando confianza del modelo...</p>
                         </div>
-                        <div style="margin-top: 10px;">
-                            <button id="btn-feedback-bad" class="btn danger-btn sm-btn" style="display: none; width: 100%;"><i class="fa-solid fa-thumbs-down"></i> Reportar como mala</button>
+                        <div id="feedback-controls" style="display:none; margin-top:10px;">
+                            <label for="feedback-reason" class="feedback-label">Motivo del feedback</label>
+                            <select id="feedback-reason" class="feedback-select">
+                                <option value="signal_quality">Calidad de la señal</option>
+                                <option value="timing">Momento de entrada/salida</option>
+                                <option value="risk_level">Nivel de riesgo</option>
+                                <option value="data_quality">Calidad de datos</option>
+                                <option value="explanation">Explicación</option>
+                                <option value="other">Otro</option>
+                            </select>
+                            <div class="feedback-actions">
+                                <button id="btn-feedback-good" class="btn sm-btn" style="display:none;"><i class="fa-solid fa-thumbs-up"></i> Útil</button>
+                                <button id="btn-feedback-bad" class="btn danger-btn sm-btn" style="display:none;"><i class="fa-solid fa-thumbs-down"></i> No útil</button>
+                            </div>
                         </div>
                     </div>
                 </div>

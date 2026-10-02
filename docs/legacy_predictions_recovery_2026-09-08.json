@@ -1,0 +1,99 @@
+{
+  "schema": "inversiones-ia-legacy-recovery/1.0",
+  "source": "learner.db",
+  "destination": "learner.db",
+  "resolved_count": 10,
+  "unexplained_pending_count": 0,
+  "resolutions": [
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 1,
+      "symbol": "TSLA",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 2,
+      "symbol": "XLF",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 3,
+      "symbol": "RUM",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 4,
+      "symbol": "DJT",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 5,
+      "symbol": "TZA",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 6,
+      "symbol": "SQQQ",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 7,
+      "symbol": "SOXS",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 8,
+      "symbol": "TEM",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 9,
+      "symbol": "TNA",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    },
+    {
+      "legacy_source": "learner_v1",
+      "legacy_id": 10,
+      "symbol": "PHUN",
+      "scan_date": "2026-09-08",
+      "status": "IRRECOVERABLE",
+      "reason": "IRRECOVERABLE_LEGACY_SCHEMA: falta timestamp UTC de datos/emisión, horizonte, entrada t+1, fuente, versiones/hash y reglas de costos; no es posible reconstruir una etiqueta sin introducir supuestos o fuga temporal",
+      "resolved_at": "2026-10-02T15:35:32.058914Z"
+    }
+  ]
+}

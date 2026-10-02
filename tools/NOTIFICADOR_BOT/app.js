@@ -240,31 +240,45 @@ if (btnRefreshAi) {
 }
 
 const btnFeedbackBad = document.getElementById("btn-feedback-bad");
-if (btnFeedbackBad) {
-    btnFeedbackBad.addEventListener("click", async () => {
-        if (!selectedTickerData) return;
-        const ticker = selectedTickerData.Ticker;
-        if (!await requestConfirmation(`¿Reportar la recomendación de ${ticker} como mala?`)) return;
-        
-        try {
-            const response = await fetch(`${API_URL}/learner/feedback`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ticker: ticker, feedback: 'bad' })
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            showToast(`Feedback registrado para ${ticker}.`, "success");
-            btnFeedbackBad.disabled = true;
-            btnFeedbackBad.innerHTML = '<i data-lucide="check"></i> Reportado';
-            if (document.getElementById('ai-tab').classList.contains('active')) {
-                loadLearnerStats();
-            }
-        } catch (e) {
-            console.error("Error enviando feedback", e);
-            showToast("No fue posible registrar el feedback.", "error");
-        }
-    });
+const btnFeedbackGood = document.getElementById("btn-feedback-good");
+
+async function submitStructuredFeedback(feedback) {
+    if (!selectedTickerData) return;
+    const ticker = selectedTickerData.Ticker;
+    const predictionId = selectedTickerData.Prediction_IDs?.['5'];
+    const reason = document.getElementById('feedback-reason')?.value || 'other';
+    if (!predictionId) {
+        showToast("Esta observación heredada no tiene una predicción auditable.", "error");
+        return;
+    }
+    const label = feedback === 'positive' ? 'útil' : 'no útil';
+    if (!await requestConfirmation(`¿Registrar la recomendación de ${ticker} como ${label}?`)) return;
+    try {
+        const response = await fetch(`${API_URL}/learner/feedback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                prediction_id: predictionId,
+                feedback,
+                reason,
+                user_id: 'local_user',
+                user_role: 'owner'
+            })
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
+        showToast(`Feedback auditable registrado para ${ticker}.`, "success");
+        [btnFeedbackBad, btnFeedbackGood].forEach(button => {
+            if (button) button.disabled = true;
+        });
+    } catch (e) {
+        console.error("Error enviando feedback", e);
+        showToast("No fue posible registrar el feedback.", "error");
+    }
 }
+
+if (btnFeedbackBad) btnFeedbackBad.addEventListener("click", () => submitStructuredFeedback('negative'));
+if (btnFeedbackGood) btnFeedbackGood.addEventListener("click", () => submitStructuredFeedback('positive'));
 
 async function loadLearnerStats() {
     const accuracyEl = document.getElementById('ai-accuracy');
@@ -278,7 +292,7 @@ async function loadLearnerStats() {
         if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
         if (data.status === 'ok') {
             const hasVerified = Number(data.stats.verified) > 0;
-            accuracyEl.textContent = hasVerified ? `${data.stats.accuracy_pct}%` : 'N/D';
+            accuracyEl.textContent = hasVerified && data.stats.accuracy_pct !== null ? `${data.stats.accuracy_pct}%` : 'N/D';
             
             const avg = data.stats.avg_change_1d;
             avgEl.textContent = hasVerified ? `${avg > 0 ? '+' : ''}${avg}%` : 'N/D';
@@ -324,17 +338,21 @@ async function loadLearnerHistory() {
                 const tr = document.createElement('tr');
                 const outcome = row.outcome;
                 let evalBadge = "neutro", evalText = "Pendiente";
-                if (outcome === 'good_strong' || outcome === 'good_mild') {
+                if (outcome === 'COMPRA_EXITOSA' || outcome === 'SALIDA_CORRECTA') {
                     evalBadge = "alta"; evalText = "🟢 Acertó";
-                } else if (outcome === 'bad_severe' || outcome === 'bad_mild') {
+                } else if (outcome === 'COMPRA_FALLIDA' || outcome === 'SALIDA_INCORRECTA') {
                     evalBadge = "evitar"; evalText = "🔴 Falló";
+                } else if (row.status === 'IRRECOVERABLE') {
+                    evalBadge = "evitar"; evalText = "Irrecuperable";
+                } else if (outcome === 'NEUTRAL') {
+                    evalText = "Neutral";
                 }
                 
                 const change = row.change_pct_1d !== null ? `${row.change_pct_1d > 0 ? '+' : ''}${row.change_pct_1d.toFixed(2)}%` : '--';
                 const changeColor = row.change_pct_1d > 0 ? 'var(--success-color)' : (row.change_pct_1d < 0 ? 'var(--danger-color)' : 'white');
                 
                 tr.innerHTML = `
-                    <td>${row.scan_date}</td>
+                    <td>${new Date(row.scan_date).toLocaleString()} · ${row.horizon_sessions}s</td>
                     <td><strong>${row.ticker}</strong></td>
                     <td>${row.score.toFixed(1)}</td>
                     <td>$${row.price_at_rec.toFixed(2)}</td>
@@ -1035,7 +1053,10 @@ function selectTicker(row, trElement) {
     
     // Configurar Confianza IA
     const aiConfContent = document.getElementById("ai-confidence-content");
-    const btnFeedback = document.getElementById("btn-feedback-bad");
+    const feedbackButtons = [
+        document.getElementById("btn-feedback-good"),
+        document.getElementById("btn-feedback-bad")
+    ];
     if (aiConfContent) {
         if (row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence)) {
             let color = 'var(--text-secondary)';
@@ -1055,15 +1076,17 @@ function selectTicker(row, trElement) {
                 ${notesHtml}
             `;
             
-            if (btnFeedback) {
-                btnFeedback.style.display = "block";
-                btnFeedback.disabled = false;
-                btnFeedback.innerHTML = '<i data-lucide="thumbs-down"></i> Reportar como mala';
-            }
         } else {
             aiConfContent.innerHTML = `<p class="placeholder-text">Datos de IA no disponibles aún.</p>`;
-            if (btnFeedback) btnFeedback.style.display = "none";
         }
+        const feedbackAvailable = Boolean(row.Prediction_IDs?.['5']);
+        const feedbackControls = document.getElementById('feedback-controls');
+        if (feedbackControls) feedbackControls.style.display = feedbackAvailable ? 'block' : 'none';
+        feedbackButtons.forEach(button => {
+            if (!button) return;
+            button.style.display = feedbackAvailable ? "block" : "none";
+            button.disabled = false;
+        });
     }
     
     // Calculate Risk

@@ -897,3 +897,26 @@ body {
     text-transform: uppercase;
 }
 
+.feedback-label {
+    display: block;
+    margin: 12px 0 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.feedback-select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.feedback-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+}
+

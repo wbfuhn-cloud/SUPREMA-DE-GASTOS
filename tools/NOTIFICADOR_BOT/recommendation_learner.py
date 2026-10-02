@@ -16,6 +16,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from prediction_ledger import CostPolicy, PredictionLedger
+
 logger = logging.getLogger(__name__)
 
 # ── Pesos por defecto (punto de partida) ─────────────────────────────────────
@@ -640,6 +642,7 @@ class AdaptiveLearner:
 
     def __init__(self, db_path: str = str(DB_PATH)):
         self.db = RecommendationDB(db_path)
+        self.ledger = PredictionLedger(db_path)
         self._last_decay = None
         logger.info("🧠 AdaptiveLearner inicializado.")
 
@@ -648,51 +651,10 @@ class AdaptiveLearner:
         return self.db.get_weights()
 
     def record_scan_results(self, results: list, top_n: int = 50):
-        """
-        Registra las top N recomendaciones de un escaneo.
-        Se llama después de cada escaneo exitoso.
-        """
-        if not results:
-            return
-
-        sorted_results = sorted(results, key=lambda x: x.get('Score', 0), reverse=True)
-        recorded = 0
-
-        for r in sorted_results[:top_n]:
-            ticker = r.get('Ticker', '')
-            if not ticker:
-                continue
-
-            score = r.get('Score', 0)
-            price = r.get('Price', 0)
-            if price <= 0:
-                continue
-
-            # Determinar qué indicadores contribuyeron al score
-            active = self._identify_active_indicators(r)
-
-            indicators = {
-                'rsi': r.get('RSI'),
-                'macd': r.get('MACD'),
-                'macd_signal': r.get('MACD_Signal'),
-                'macd_hist': r.get('MACD_Hist'),
-                'bb_upper': r.get('BB_Upper'),
-                'bb_lower': r.get('BB_Lower'),
-                'vol_ratio': r.get('Vol_Ratio'),
-                'volatility_pct': r.get('Volatility_Percent'),
-                'market_cap': r.get('Market_Cap'),
-                'sector': r.get('Sector', 'N/A'),
-            }
-
-            rec_id = self.db.record_recommendation(
-                ticker=ticker, score=score, price=price,
-                indicators=indicators, active_indicators=active,
-                viability=r.get('Viabilidad', '')
-            )
-            if rec_id > 0:
-                recorded += 1
-
-        logger.info(f"🧠 Registradas {recorded} recomendaciones del escaneo.")
+        """Registra predicciones append-only y separadas por horizonte."""
+        prediction_ids = self.ledger.record_scan_results(results, top_n=top_n)
+        logger.info(f"🧠 Registradas {len(prediction_ids)} predicciones inmutables del escaneo.")
+        return prediction_ids
 
     def verify_past_recommendations(self):
         """
@@ -701,71 +663,12 @@ class AdaptiveLearner:
         """
         from stock_scanner import _fetch_history_raw
 
-        pending = self.db.get_pending_verifications(min_age_days=1)
-        if not pending:
-            logger.info("🧠 Sin recomendaciones pendientes de verificación.")
-            return
+        def provider(symbol, _entry, _due):
+            return _fetch_history_raw(symbol, period='3mo')
 
-        logger.info(f"🧠 Verificando {len(pending)} recomendaciones pasadas...")
-        verified_count = 0
-        adjustments = 0
-
-        for rec in pending:
-            ticker = rec['ticker']
-            scan_date = rec['scan_date']
-            price_at_rec = rec['price_at_rec']
-
-            if not price_at_rec or price_at_rec <= 0:
-                continue
-
-            try:
-                # Descargar precios recientes
-                df = _fetch_history_raw(ticker, period='1mo')
-                if df is None or df.empty:
-                    continue
-
-                scan_dt = datetime.strptime(scan_date, '%Y-%m-%d')
-
-                # Buscar precio a 1 día
-                price_1d = self._find_price_on_date(df, scan_dt + timedelta(days=1))
-                # Buscar precio a 3 días
-                price_3d = self._find_price_on_date(df, scan_dt + timedelta(days=3))
-                # Buscar precio a 7 días
-                price_7d = self._find_price_on_date(df, scan_dt + timedelta(days=7))
-
-                if price_1d is None:
-                    # Intentar día hábil siguiente
-                    for offset in range(2, 5):
-                        price_1d = self._find_price_on_date(df, scan_dt + timedelta(days=offset))
-                        if price_1d:
-                            break
-
-                if price_1d is None:
-                    continue  # Aún no hay datos
-
-                outcome, change_pct = self.db.update_verification(
-                    rec['id'], price_1d, price_3d, price_7d, price_at_rec
-                )
-
-                verified_count += 1
-
-                # Ajustar pesos según resultado
-                active_indicators = json.loads(rec.get('active_indicators', '[]') or '[]')
-                adj = self._process_outcome(
-                    outcome, change_pct, ticker, active_indicators
-                )
-                adjustments += adj
-
-            except Exception as e:
-                logger.debug(f"Error verificando {ticker}: {e}")
-
-        # Aplicar decay semanal si hace falta
-        self._maybe_apply_decay()
-
-        logger.info(
-            f"🧠 Verificación completada: {verified_count} verificadas, "
-            f"{adjustments} ajustes de pesos realizados."
-        )
+        summary = self.ledger.verify_due(provider, costs=CostPolicy())
+        logger.info(f"🧠 Verificación temporal completada: {summary}")
+        return summary
 
     def get_confidence(self, ticker: str, sector: str = '', rsi: float = 50) -> dict:
         """Obtiene el score de confianza para un ticker."""
@@ -773,35 +676,20 @@ class AdaptiveLearner:
 
     def get_stats(self) -> dict:
         """Retorna estadísticas del learner."""
-        return self.db.get_stats()
+        return self.ledger.get_stats()
 
     def get_history(self, limit: int = 50) -> list:
         """Retorna historial de recomendaciones."""
-        return self.db.get_history(limit)
+        return self.ledger.get_history(limit)
 
-    def submit_user_feedback(self, ticker: str, feedback: str = 'bad'):
-        """Procesa feedback manual del usuario."""
-        self.db.record_user_feedback(ticker=ticker, feedback=feedback)
-
-        if feedback == 'bad':
-            # Aplicar penalización extra
-            conn = self.db._get_conn()
-            try:
-                rec = conn.execute("""
-                    SELECT * FROM recommendations
-                    WHERE ticker=? ORDER BY scan_date DESC LIMIT 1
-                """, (ticker,)).fetchone()
-                if rec:
-                    active = json.loads(rec['active_indicators'] or '[]')
-                    for ind in active:
-                        self.db.adjust_weight(
-                            ind, PENALTY_FACTOR_MILD,
-                            'user_feedback_bad', ticker, 0
-                        )
-            finally:
-                conn.close()
-
-        logger.info(f"🧠 Feedback del usuario registrado: {ticker} → {feedback}")
+    def submit_user_feedback(self, prediction_id: str, feedback: str, reason: str,
+                             user_id: str, user_role: str, note: str = ''):
+        """Guarda feedback auxiliar; nunca modifica el modelo o los pesos activos."""
+        feedback_id = self.ledger.record_feedback(
+            prediction_id, feedback, reason, user_id, user_role, note
+        )
+        logger.info(f"🧠 Feedback auditable registrado: {feedback_id}")
+        return feedback_id
 
     def record_live_alert(self, ticker: str, price: float, signal_type: str, reason: str, confidence: float):
         self.db.record_live_alert(ticker, price, signal_type, reason, confidence)

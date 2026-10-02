@@ -292,6 +292,20 @@ def run_auto_scan_loop():
         _time.sleep(3600)   # revisar cada hora
 
 
+def run_prediction_recovery_loop():
+    """Recupera resultados vencidos aunque no se ejecute un nuevo escaneo."""
+    logger.info("[LEARN] Hilo de verificación de predicciones iniciado.")
+    _time.sleep(45)
+    while True:
+        try:
+            if get_learner:
+                summary = get_learner().verify_past_recommendations()
+                logger.info(f"[LEARN] Recuperación de resultados: {summary}")
+        except Exception as exc:
+            logger.error(f"Error en recuperación de predicciones: {exc}", exc_info=True)
+        _time.sleep(6 * 3600)
+
+
 
 
 
@@ -391,7 +405,13 @@ def run_live_alert_loop():
                                 timeout=10
                             )
                             if res.status_code == 200:
-                                learner.record_live_alert(ticker, action, price, ai_confidence, reason)
+                                learner.record_live_alert(
+                                    ticker=ticker,
+                                    price=price,
+                                    signal_type=action,
+                                    reason=reason,
+                                    confidence=ai_confidence,
+                                )
                                 logger.info(f"Alerta enviada para {ticker}: {action}")
                             else:
                                 logger.error(f"Error Telegram: {res.text}")
@@ -428,6 +448,7 @@ def start_background_tasks():
     # Hilos de escaneo automático
     threading.Thread(target=run_auto_scan_loop, name="AutoScan-Bolsa", daemon=True).start()
     threading.Thread(target=run_live_alert_loop, name="LiveAlerts-Bolsa", daemon=True).start()
+    threading.Thread(target=run_prediction_recovery_loop, name="PredictionRecovery-Bolsa", daemon=True).start()
     logger.info("Tareas de fondo iniciadas (diferidas).")
 
 
@@ -882,13 +903,18 @@ def learner_feedback():
     if not get_learner:
         return jsonify({'status': 'error', 'message': 'Learner no disponible'}), 503
     data = request.get_json(force=True) or {}
-    ticker = data.get('ticker')
-    feedback = data.get('feedback', 'bad')
-    if not ticker:
-        return jsonify({'status': 'error', 'message': 'Ticker requerido'}), 400
-    
-    get_learner().submit_user_feedback(ticker, feedback)
-    return jsonify({'status': 'ok', 'message': 'Feedback registrado'})
+    required = ('prediction_id', 'feedback', 'reason', 'user_id', 'user_role')
+    missing = [field for field in required if not data.get(field)]
+    if missing:
+        return jsonify({'status': 'error', 'message': f"Campos requeridos: {', '.join(missing)}"}), 400
+    try:
+        feedback_id = get_learner().submit_user_feedback(
+            data['prediction_id'], data['feedback'], data['reason'],
+            data['user_id'], data['user_role'], data.get('note', '')
+        )
+    except (ValueError, KeyError) as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+    return jsonify({'status': 'ok', 'message': 'Feedback registrado', 'feedback_id': feedback_id})
 
 
 # ── Machine Learning (Predictor) ─────────────────────────────────────────────
