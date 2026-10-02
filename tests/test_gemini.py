@@ -1,42 +1,30 @@
-# -*- coding: utf-8 -*-
+"""Prueba manual y opt-in de conectividad con Google Gemini.
+
+Esta prueba nunca se ejecuta durante la colección normal: requiere la marca
+``live`` y la variable ``RUN_LIVE_GEMINI_TESTS=1``. Tampoco imprime ni parcial
+ni completamente la credencial usada.
+"""
+
 import os
-from google import genai
-from dotenv import load_dotenv
 
-print("=" * 50)
-print("PRUEBA DE CONEXION CON GOOGLE GEMINI")
-print("=" * 50)
+import pytest
 
-load_dotenv()
-api_key = os.getenv("GOOGLE_API_KEY")
 
-if not api_key:
-    print("ERROR: No se encontro GOOGLE_API_KEY en .env")
-    exit(1)
+@pytest.mark.live
+def test_gemini_connection():
+    if os.getenv("RUN_LIVE_GEMINI_TESTS") != "1":
+        pytest.skip("Prueba externa desactivada; usa RUN_LIVE_GEMINI_TESTS=1")
 
-print(f"OK - API Key cargada: {api_key[:10]}...{api_key[-5:]}")
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        pytest.skip("GOOGLE_API_KEY no está configurada")
 
-try:
+    from google import genai
+
     client = genai.Client(api_key=api_key)
-    model_name = 'gemini-2.5-flash'
-    
-    print(f"\nProbando modelo: {model_name}")
-    print("Enviando solicitud...")
-    
     response = client.models.generate_content(
-        model=model_name,
-        contents="Di 'Hola' en 5 idiomas diferentes"
+        model="gemini-2.5-flash",
+        contents="Responde únicamente con la palabra OK",
     )
-    
-    print("\n" + "=" * 50)
-    print("CONEXION EXITOSA!")
-    print("=" * 50)
-    print("Respuesta de Gemini:")
-    print(response.text)
-    print("=" * 50)
-    
-except Exception as e:
-    print(f"\nERROR: {e}")
-    print(f"Tipo de error: {type(e).__name__}")
-    import traceback
-    traceback.print_exc()
+
+    assert response.text
