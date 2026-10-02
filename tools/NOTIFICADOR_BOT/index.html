@@ -204,6 +204,22 @@
                         <button id="btn-refresh-ai" class="btn primary-btn sm-btn" style="float: right; margin-top: -4px;"><i class="fa-solid fa-sync"></i> Actualizar</button>
                     </div>
 
+                    <section id="ai-transparency-panel" class="transparency-panel" aria-live="polite" aria-labelledby="ai-transparency-title">
+                        <h3 id="ai-transparency-title">Estado operativo y evidencia</h3>
+                        <p class="placeholder-text">Cargando módulos, validación prospectiva y razones de degradación…</p>
+                    </section>
+
+                    <form id="ai-history-filters" class="history-filters" aria-label="Filtros del historial">
+                        <label>Desde <input type="date" name="date_from" class="glass-input"></label>
+                        <label>Hasta <input type="date" name="date_to" class="glass-input"></label>
+                        <label>Ticker <input name="ticker" class="glass-input" placeholder="AAPL"></label>
+                        <label>Modelo <input name="model" class="glass-input" placeholder="versión"></label>
+                        <label>Señal <select name="signal" class="glass-input"><option value="">Todas</option><option>COMPRAR</option><option>ESPERAR</option><option>MANTENER</option><option>REDUCIR</option><option>SALIR</option><option>SIN SEÑAL</option></select></label>
+                        <label>Horizonte <input name="horizon" class="glass-input" placeholder="5-20"></label>
+                        <label>Resultado <input name="result" class="glass-input" placeholder="COMPRA_EXITOSA"></label>
+                        <button type="submit" class="btn primary-btn sm-btn">Aplicar filtros</button>
+                    </form>
+
                     <div class="table-responsive">
                         <table class="data-table" id="ai-history-table">
                             <thead>

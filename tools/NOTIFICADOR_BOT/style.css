@@ -920,3 +920,16 @@ body {
     margin-top: 8px;
 }
 
+.transparency-panel { margin: 15px; padding: 16px; border: 1px solid var(--glass-border); border-radius: 12px; }
+.transparency-panel h3 { margin-top: 0; }
+.transparency-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.transparency-grid div { display: flex; flex-direction: column; gap: 4px; padding: 10px; background: rgba(148, 163, 184, .08); border-radius: 8px; }
+.transparency-grid span { color: var(--text-secondary); overflow-wrap: anywhere; }
+.history-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: end; padding: 0 15px 15px; }
+.history-filters label { display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: 12px; }
+.financial-disclaimer { color: var(--warning-color); font-size: 12px; font-weight: 700; }
+
+@media (max-width: 640px) {
+    .history-filters, .transparency-grid { grid-template-columns: 1fr; }
+}
+

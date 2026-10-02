@@ -123,7 +123,7 @@ def analyze_ticker_strategy(
             "missing_indicators": heuristic["missing"],
             "quote":        quote,
             "data_quality": quote.get("quality_score", 0.0),
-            "signal_eligible": state != "SIN SEÑAL",
+            "signal_eligible": verdict != "SIN SEÑAL",
             "error":        None
         }
     except Exception as e:

@@ -190,7 +190,7 @@ class HeuristicContractTests(unittest.TestCase):
             }
             result = process_single_ticker("TEST", use_cache=False, prefetched_history=frame)
         self.assertEqual(result["Heuristic_Version"], HEURISTIC_VERSION)
-        self.assertIn(result["Signal_State"], {"COMPRAR", "MANTENER/ESPERAR", "REDUCIR", "SALIR", "SIN SEÑAL"})
+        self.assertIn(result["Signal_State"], {"COMPRAR", "ESPERAR", "MANTENER", "REDUCIR", "SALIR", "SIN SEÑAL"})
         self.assertAlmostEqual(sum(result["Score_Contributions"].values()), result["Score"], delta=0.01)
 
     def test_alerts_consume_state_without_mutating_it_with_confidence(self):

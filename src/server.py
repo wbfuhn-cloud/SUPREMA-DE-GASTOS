@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, make_response, send_file, send_from_directory, render_template
+from flask import Flask, jsonify, request, make_response, send_file, send_from_directory, render_template, g
 from flask_cors import CORS  # type: ignore
 import sys
 import os
@@ -8,6 +8,7 @@ import threading
 import time as _time
 import json
 import calendar
+from pathlib import Path
 
 # ─── Path ────────────────────────────────────────────────────────────────────
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,11 +29,16 @@ db_manager = DatabaseManager()
 visor_import_error: str | None = None
 
 sys.path.append(os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT'))
+from production_controls import (KillSwitch, OperationalMetrics, RateLimiter,
+                                 authorized_write, correlation_id)
+from release_governance import current_project_gate
 fetch_stock_data = process_single_ticker = None
 get_cache_stats = clear_cache = get_ticker_cache_stats = clear_ticker_cache = None
 calculate_position_size = analyze_portfolio = None
 get_learner = get_ml_predictor = None
 config_mgr = None
+paper_ledger = paper_protocol = phase9_approval_fn = None
+signal_explanation_fn = adaptive_ai_status_fn = filter_history_fn = None
 _visor_loaded = False
 _visor_lock = threading.Lock()
 
@@ -42,6 +48,8 @@ def _ensure_visor_loaded():
     global _visor_loaded, visor_import_error, fetch_stock_data, process_single_ticker
     global get_cache_stats, clear_cache, get_ticker_cache_stats, clear_ticker_cache
     global calculate_position_size, analyze_portfolio, get_learner, get_ml_predictor, config_mgr
+    global paper_ledger, paper_protocol, phase9_approval_fn
+    global signal_explanation_fn, adaptive_ai_status_fn, filter_history_fn
     if _visor_loaded:
         return
     with _visor_lock:
@@ -54,12 +62,30 @@ def _ensure_visor_loaded():
             from portfolio_analyzer import analyze_portfolio as _analyze  # type: ignore
             from recommendation_learner import get_learner as _learner  # type: ignore
             from ml_predictor import get_ml_predictor as _predictor  # type: ignore
+            from paper_trading import PaperTradingLedger, freeze_protocol, phase9_approval as _phase9_approval  # type: ignore
+            from signal_fusion import FUSION_VERSION  # type: ignore
+            from technical_engine import HEURISTIC_VERSION  # type: ignore
+            from explainability import signal_explanation, adaptive_ai_status, filter_history  # type: ignore
             fetch_stock_data, process_single_ticker = _fetch, _process
             get_cache_stats, clear_cache = _stats, _clear
             get_ticker_cache_stats, clear_ticker_cache = _ticker_stats, _ticker_clear
             calculate_position_size, analyze_portfolio = _position, _analyze
             get_learner, get_ml_predictor = _learner, _predictor
             config_mgr = ConfigManager()
+            paper_protocol = freeze_protocol({
+                'fusion_version': FUSION_VERSION,
+                'heuristic_version': HEURISTIC_VERSION,
+                'ml_policy': 'experiment_only',
+                'fourier_policy': 'experiment_only',
+                'minimum_data_quality': 0.95,
+                'buy_probability_threshold': 0.65,
+                'risk_per_trade_max': 0.01,
+            })
+            paper_ledger = PaperTradingLedger(os.path.join(root_dir, 'database', 'paper_trading.db'))
+            phase9_approval_fn = _phase9_approval
+            signal_explanation_fn = signal_explanation
+            adaptive_ai_status_fn = adaptive_ai_status
+            filter_history_fn = filter_history
             visor_import_error = None
         except ImportError as exc:
             visor_import_error = str(exc)
@@ -71,6 +97,42 @@ def _ensure_visor_loaded():
 app = Flask(__name__)
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 CORS(app)
+operations_metrics = OperationalMetrics()
+api_rate_limiter = RateLimiter(limit=int(os.getenv('BOLSA_RATE_LIMIT', '120')), window_seconds=60)
+operations_kill_switch = KillSwitch(Path(root_dir) / 'database' / 'kill_switch.json')
+WRITE_PATHS = ('/api/portfolio', '/api/learner/feedback', '/api/ml/retrain',
+               '/api/scan/start', '/api/bolsa/operations/kill-switch')
+
+
+@app.before_request
+def _operational_request_controls():
+    g.request_started = _time.perf_counter()
+    g.correlation_id = correlation_id(request.headers.get('X-Correlation-ID'))
+    if request.path.startswith('/api/'):
+        client = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
+        if not api_rate_limiter.allow(client):
+            return jsonify({'status': 'error', 'message': 'Límite de solicitudes excedido',
+                            'correlation_id': g.correlation_id}), 429
+    if request.method not in {'GET', 'HEAD', 'OPTIONS'} and request.path.startswith(WRITE_PATHS):
+        if not authorized_write(os.getenv('BOLSA_WRITE_TOKEN'), request.headers.get('Authorization'),
+                                os.getenv('APP_ENV', 'development')):
+            return jsonify({'status': 'error', 'message': 'No autorizado',
+                            'correlation_id': g.correlation_id}), 401
+
+
+@app.after_request
+def _operational_response_headers(response):
+    request_id = getattr(g, 'correlation_id', correlation_id())
+    elapsed = (_time.perf_counter() - getattr(g, 'request_started', _time.perf_counter())) * 1000
+    operations_metrics.observe(request.path, elapsed, response.status_code)
+    response.headers['X-Correlation-ID'] = request_id
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    logger.info(json.dumps({'event': 'http_request', 'correlation_id': request_id,
+                            'method': request.method, 'path': request.path,
+                            'status': response.status_code, 'latency_ms': round(elapsed, 2)}))
+    return response
 
 
 @app.before_request
@@ -230,6 +292,28 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
             SCAN_STATE['progress'] = 1.0
             SCAN_STATE['generated_at_utc'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             _save_scan_persistence()
+            try:
+                for result in SCAN_STATE['results']:
+                    quote = result.get('Quote') or {}
+                    for horizon_name, fusion in (result.get('Fusion_Horizons') or {}).items():
+                        paper_ledger.append_signal({
+                            'decision_hash': fusion.get('decision_hash'),
+                            'ticker': result.get('Ticker'),
+                            'signal': fusion.get('state'),
+                            'horizon': horizon_name,
+                            'quoted_price': result.get('Price'),
+                            'data_timestamp_utc': quote.get('market_timestamp'),
+                            'provider': quote.get('provider'),
+                            'data_quality': result.get('Data_Quality', 0.0),
+                            'baseline_signal': result.get('Signal_State'),
+                            'candidate_signal': fusion.get('state'),
+                            'model_version': result.get('Model_Version') or 'unavailable',
+                            'rules_version': result.get('Fusion_Version') or 'unknown',
+                            'emitted_at_utc': SCAN_STATE['generated_at_utc'],
+                            'market_session': quote.get('session') or SCAN_STATE['generated_at_utc'][:10],
+                        }, paper_protocol['configuration_hash'])
+            except Exception as exc:
+                logger.error(f"No se pudo registrar paper trading: {exc}", exc_info=True)
             
             # Enviar notificación a Telegram
             try:
@@ -872,13 +956,78 @@ def get_results():
         if 'Price_MXN' in r and r.get('Price', 0) > 0:
             er = round(r['Price_MXN'] / r['Price'], 4)
             break
+    results = SCAN_STATE['results']
+    kill_status = operations_kill_switch.status()
+    if kill_status['active']:
+        results = [{**row, 'Signal_State': 'SIN SEÑAL', 'Signal_Eligible': False,
+                    'Kill_Switch': {'active': True, 'reason': kill_status['reason']}}
+                   for row in results]
+    operations_metrics.signal_count = len(results)
+    operations_metrics.stale_data_count = sum(bool((row.get('Quote') or {}).get('is_stale')) for row in results)
     return jsonify({
         'status':          'ok',
         'data_contract_version': '3.0',
-        'results':        SCAN_STATE['results'],
+        'results':        results,
         'market_context': SCAN_STATE['market_context'],
         'exchange_rate':  er,
         'generated_at_utc': SCAN_STATE.get('generated_at_utc'),
+    })
+
+
+@app.route('/api/bolsa/operations', methods=['GET'])
+def bolsa_operations():
+    return jsonify({'status': 'ok', 'metrics': operations_metrics.snapshot(),
+                    'kill_switch': operations_kill_switch.status()})
+
+
+@app.route('/api/bolsa/release-status', methods=['GET'])
+def bolsa_release_status():
+    return jsonify({'status': 'ok', 'release': current_project_gate()})
+
+
+@app.route('/api/bolsa/operations/kill-switch', methods=['POST'])
+def set_operations_kill_switch():
+    data = request.get_json(silent=True) or {}
+    actor = str(data.get('actor') or '').strip()
+    reason = str(data.get('reason') or '').strip()
+    if not actor or not reason or not isinstance(data.get('active'), bool):
+        return jsonify({'status': 'error', 'message': 'active, reason y actor son obligatorios'}), 400
+    state = operations_kill_switch.set(data['active'], reason, actor)
+    return jsonify({'status': 'ok', 'kill_switch': state})
+
+
+@app.route('/api/bolsa/paper/status', methods=['GET'])
+def paper_trading_status():
+    if not paper_ledger or not phase9_approval_fn:
+        return jsonify({'status': 'error', 'message': 'Paper trading no disponible'}), 503
+    metrics = paper_ledger.metrics()
+    gate = phase9_approval_fn(
+        metrics, availability=None, live_backtest_deviation=None,
+        net_expected_value=None, drawdown_within_limit=None,
+    )
+    return jsonify({
+        'status': 'ok', 'mode': 'paper_trading', 'protocol': paper_protocol,
+        'metrics': metrics, 'approval': gate,
+        'notice': 'Sin dinero real; extender hasta completar la muestra prospectiva.',
+    })
+
+
+@app.route('/api/bolsa/transparency', methods=['GET'])
+def bolsa_transparency():
+    if not all((signal_explanation_fn, adaptive_ai_status_fn, paper_ledger, phase9_approval_fn)):
+        return jsonify({'status': 'error', 'message': 'Transparencia no disponible'}), 503
+    paper_metrics = paper_ledger.metrics()
+    paper_gate = phase9_approval_fn(
+        paper_metrics, availability=None, live_backtest_deviation=None,
+        net_expected_value=None, drawdown_within_limit=None,
+    )
+    ml = get_ml_predictor().get_status() if get_ml_predictor else {}
+    learner = get_learner().get_stats() if get_learner else {}
+    return jsonify({
+        'status': 'ok',
+        'adaptive_ai': adaptive_ai_status_fn(ml_status=ml, learner_stats=learner, paper_status=paper_gate),
+        'paper_trading': {'metrics': paper_metrics, 'approval': paper_gate},
+        'signals': [signal_explanation_fn(row, SCAN_STATE.get('generated_at_utc')) for row in SCAN_STATE['results']],
     })
 
 
@@ -895,7 +1044,12 @@ def learner_history():
     if not get_learner:
         return jsonify({'status': 'error', 'message': 'Learner no disponible'}), 503
     limit = request.args.get('limit', 50, type=int)
-    return jsonify({'status': 'ok', 'history': get_learner().get_history(limit)})
+    history = get_learner().get_history(limit)
+    filters = {name: request.args.get(name) for name in
+               ('date_from', 'date_to', 'ticker', 'model', 'signal', 'horizon', 'result')}
+    if filter_history_fn:
+        history = filter_history_fn(history, **filters)
+    return jsonify({'status': 'ok', 'history': history, 'filters': filters})
 
 
 @app.route('/api/learner/feedback', methods=['POST'])

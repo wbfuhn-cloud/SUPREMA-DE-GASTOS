@@ -211,7 +211,7 @@ tabBtns.forEach(btn => {
         const tabId = btn.dataset.tab;
         if (!activateTab(tabId, btn)) return;
         if (tabId === 'ai-tab') {
-            await Promise.all([loadLearnerStats(), loadLearnerHistory()]);
+            await Promise.all([loadLearnerStats(), loadLearnerHistory(), loadTransparencyStatus()]);
         }
     });
     btn.addEventListener("keydown", event => {
@@ -236,6 +236,7 @@ if (btnRefreshAi) {
     btnRefreshAi.addEventListener("click", () => {
         loadLearnerStats();
         loadLearnerHistory();
+        loadTransparencyStatus();
     });
 }
 
@@ -321,13 +322,45 @@ async function loadLearnerStats() {
     }
 }
 
+async function loadTransparencyStatus() {
+    const panel = document.getElementById('ai-transparency-panel');
+    if (!panel) return;
+    try {
+        const response = await fetch(`${API_URL}/bolsa/transparency`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
+        const ai = data.adaptive_ai || {};
+        const paper = data.paper_trading || {};
+        const modules = ai.modules || {};
+        const metrics = paper.metrics || {};
+        panel.innerHTML = `
+            <h3 id="ai-transparency-title">Estado operativo y evidencia</h3>
+            <div class="transparency-grid">
+                <div><strong>Operación</strong><span>${escapeHtml(ai.operational_state || 'N/D')}</span></div>
+                <div><strong>Heurística</strong><span>${escapeHtml(modules.heuristic || 'N/D')}</span></div>
+                <div><strong>ML</strong><span>${escapeHtml(modules.ml || 'N/D')}</span></div>
+                <div><strong>Fourier</strong><span>${escapeHtml(modules.fourier || 'N/D')}</span></div>
+                <div><strong>Último entrenamiento</strong><span>${escapeHtml(ai.last_training || 'N/D')}</span></div>
+                <div><strong>Predicciones verificadas</strong><span>${escapeHtml(ai.verified_predictions ?? 'N/D')}</span></div>
+                <div><strong>Paper trading</strong><span>${escapeHtml(metrics.market_sessions ?? 0)} sesiones · ${escapeHtml(metrics.eligible_signals ?? 0)} señales</span></div>
+                <div><strong>Gate</strong><span>${escapeHtml(paper.approval?.decision || 'N/D')}</span></div>
+            </div>
+            <p><strong>Razón de degradación:</strong> ${escapeHtml(ai.degradation_reason || 'N/D')}</p>
+            <p class="financial-disclaimer">Análisis educativo. No garantiza resultados ni constituye asesoría financiera.</p>`;
+    } catch (error) {
+        panel.innerHTML = `<h3 id="ai-transparency-title">Estado operativo y evidencia</h3><p class="signal-blocked">No disponible: ${escapeHtml(error.message)}</p>`;
+    }
+}
+
 async function loadLearnerHistory() {
     const tbody = document.getElementById('ai-history-tbody');
     if (!tbody) return;
     
     tbody.innerHTML = `<tr><td colspan="6"><i data-lucide="loader" class="lucide-spin"></i> Cargando historial...</td></tr>`;
     try {
-        const res = await fetch(`${API_URL}/learner/history`);
+        const form = document.getElementById('ai-history-filters');
+        const query = form ? new URLSearchParams(new FormData(form)).toString() : '';
+        const res = await fetch(`${API_URL}/learner/history${query ? `?${query}` : ''}`);
         const data = await res.json();
         if (data.status === 'ok') {
             tbody.innerHTML = '';
@@ -369,6 +402,12 @@ async function loadLearnerHistory() {
         tbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color)">Error al cargar historial</td></tr>`;
     }
 }
+
+const aiHistoryFilters = document.getElementById('ai-history-filters');
+if (aiHistoryFilters) aiHistoryFilters.addEventListener('submit', event => {
+    event.preventDefault();
+    loadLearnerHistory();
+});
 
 filterViability.addEventListener("change", renderTables);
 searchTicker.addEventListener("input", renderTables);
@@ -1028,6 +1067,16 @@ function selectTicker(row, trElement) {
             <p><strong>Invalidación:</strong> ${(row.Fusion_Explanation.invalidation_triggers || []).map(escapeHtml).join(' · ')}</p>
             ${row.Risk_Plan ? `<p><strong>Riesgo:</strong> ${row.Risk_Plan.position_size_shares} acciones · stop $${Number(row.Risk_Plan.stop_price).toFixed(2)} · pérdida máxima $${Number(row.Risk_Plan.maximum_loss).toFixed(2)} · horizonte ${escapeHtml(row.Risk_Plan.horizon)}</p>` : ''}
         </div>` : ''}
+
+        <div class="detail-section signal-transparency" aria-label="Transparencia de la señal">
+            <h3>Qué sabe el sistema y qué no</h3>
+            <p><strong>Horizonte:</strong> ${escapeHtml(row.Risk_Plan?.horizon || 'swing 5-20 sesiones')} · <strong>Frescura:</strong> ${escapeHtml(row.Quote?.freshness_seconds ?? 'N/D')} s · <strong>Proveedor:</strong> ${escapeHtml(row.Quote?.provider || 'N/D')}</p>
+            <p><strong>Probabilidad ML calibrada:</strong> ${hasNumericValue(row.Calibrated_Probability) ? `${(Number(row.Calibrated_Probability) * 100).toFixed(1)}%` : 'N/D — modelo no aprobado o sin calibración'}</p>
+            <p><strong>Heurística:</strong> ${hasNumericValue(row.Score) ? Number(row.Score).toFixed(2) : 'N/D'} · <strong>Fourier:</strong> ${row.Spectral_Validated ? escapeHtml(row.Spectral_Score) : 'experimental, no usado en el veredicto'}</p>
+            <p><strong>Calidad de datos:</strong> ${hasNumericValue(row.Data_Quality) ? `${(Number(row.Data_Quality) * 100).toFixed(1)}%` : 'N/D'} · <strong>Incertidumbre:</strong> ${row.Data_Quality < .95 ? 'alta' : (hasNumericValue(row.Calibrated_Probability) ? 'cuantificada' : 'no cuantificada')}</p>
+            <p><strong>Versiones:</strong> reglas ${escapeHtml(row.Fusion_Version || 'N/D')} · modelo ${escapeHtml(row.Model_Version || 'N/D')}</p>
+            <p class="financial-disclaimer">No garantiza resultados ni constituye asesoría financiera.</p>
+        </div>
         
         <div class="detail-section">
             <h3>Volatilidad y Fundamentales</h3>

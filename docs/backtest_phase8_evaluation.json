@@ -1,0 +1,58 @@
+{
+  "schema": "inversiones-ia-phase8-evaluation/1.0",
+  "historical_dataset_available": false,
+  "historical_universe_composition_available": false,
+  "verified_training_predictions_available": 0,
+  "final_test_status": "UNTOUCHED",
+  "strategies": {
+    "buy_hold_spy": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    },
+    "buy_hold_qqq": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    },
+    "heuristic": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    },
+    "ml": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    },
+    "heuristic_ml": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    },
+    "heuristic_ml_fourier": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    },
+    "without_learned_exit": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    },
+    "with_learned_exit": {
+      "status": "NOT_EVALUATED",
+      "reason": "missing_traceable_market_dataset"
+    }
+  },
+  "segmentations": {
+    "regime": "NOT_EVALUATED",
+    "sector": "NOT_EVALUATED",
+    "liquidity": "NOT_EVALUATED",
+    "volatility": "NOT_EVALUATED",
+    "horizon": "NOT_EVALUATED"
+  },
+  "bootstrap": "NOT_EVALUATED",
+  "sensitivity": "NOT_EVALUATED",
+  "multiple_testing_correction": "IMPLEMENTED_BONFERRONI_NOT_APPLIED",
+  "blockers": [
+    "No existe serie histórica trazable con señales y resultados verificables.",
+    "No existe composición histórica del universo; usar la lista actual introduciría supervivencia.",
+    "El ML de fase 5 no está aprobado y Fourier no superó ablación real."
+  ],
+  "approved": false,
+  "decision": "DO_NOT_ADVANCE_TO_PAPER_TRADING"
+}
