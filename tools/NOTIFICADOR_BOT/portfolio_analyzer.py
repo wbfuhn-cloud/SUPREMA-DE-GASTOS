@@ -13,6 +13,7 @@ from stock_scanner import (
 )
 from market_data import exchange_rate_contract, quote_from_history
 from technical_engine import HEURISTIC_VERSION, evaluate_heuristic
+from signal_fusion import FUSION_VERSION, FusionInput, fuse_signal
 
 
 def _is_leveraged_etf(ticker: str) -> bool:
@@ -78,12 +79,30 @@ def analyze_ticker_strategy(
                 if pl_pct < -10:
                     reasons.append("Pérdida <-10%: regla de salida de protección")
 
-        state = heuristic["state"]
-        if state != "SIN SEÑAL" and entry_price > 0 and pl_pct < -10:
-            state = "SALIR"
-        elif state == "COMPRAR" and entry_price > 0 and pl_pct > 15:
-            state = "REDUCIR"
-        verdict = state
+        regime_map = {
+            'uptrend': 'alcista', 'lateral': 'lateral', 'noise': 'lateral',
+            'downtrend': 'bajista', 'jump': 'crisis', 'high_volatility': 'crisis',
+        }
+        fusion = fuse_signal(FusionInput(
+            symbol=ticker_symbol,
+            horizon=heuristic['horizons']['swing']['sessions'],
+            heuristic_score=float(heuristic['horizons']['swing']['directional_score']),
+            heuristic_state=heuristic['state'],
+            data_quality=float(quote.get('quality_score', 0.0)),
+            regime=regime_map.get(heuristic['regime'], 'lateral'),
+            price=price,
+            atr=float(heuristic['indicators'].get('atr') or 0.0),
+            has_position=entry_price > 0 and qty > 0,
+            model_approved=False,
+            stop_triggered=entry_price > 0 and pl_pct < -10,
+            profit_take_triggered=entry_price > 0 and pl_pct > 15,
+            position_concentration=0.0,
+            aggregate_open_risk=0.0,
+            leveraged_etf=is_leveraged,
+        ))
+        verdict = fusion['state']
+        reasons.extend(fusion['factors_for'])
+        reasons.extend(fusion['factors_against'])
 
         return {
             "ticker":       ticker_symbol,
@@ -96,6 +115,8 @@ def analyze_ticker_strategy(
             "reasons":      reasons,
             "is_leveraged": is_leveraged,
             "heuristic_version": HEURISTIC_VERSION,
+            "fusion_version": FUSION_VERSION,
+            "fusion": fusion,
             "horizon_scores": heuristic["horizons"],
             "score": heuristic["score"],
             "score_contributions": heuristic["contributions"],

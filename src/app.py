@@ -55,6 +55,7 @@ from src.config import Config
 from src.server import run_server
 from src.tunnel import TunnelManager
 from src.monitor import hilo_baz, stop_event as monitor_stop_event
+from src.updater import start_background_update_check
 
 
 class TextHandler(logging.Handler):
@@ -415,5 +416,7 @@ class BotGUI(ctk.CTk):
 
 
 if __name__ == "__main__":
+    # Consulta GitHub en segundo plano. Un fallo de red nunca bloquea el programa.
+    start_background_update_check()
     app = BotGUI()
     app.mainloop()

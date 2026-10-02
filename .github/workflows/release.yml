@@ -1,0 +1,24 @@
+name: Publicar actualización portátil
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crear ZIP distribuible
+        shell: pwsh
+        run: |
+          git archive --format=zip --output="Inversiones-IA-${{ github.ref_name }}.zip" HEAD
+      - name: Publicar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: Inversiones-IA-${{ github.ref_name }}.zip

@@ -311,6 +311,8 @@ async function loadLearnerStats() {
             if (mlAccEl && metrics.full_precision) {
                 mlAccEl.title = `Modelo ML GradientBoosting: ${metrics.samples_total} muestras | AUC: ${metrics.auc_score}%`;
             }
+        } else if (mlData.status === 'ok' && mlData.ml) {
+            accuracyEl.title = `Modelo no aprobado para producción: ${mlData.ml.degraded_reason || 'sin validación temporal'}. Se usa únicamente el motor heurístico.`;
         }
     } catch (e) {
         console.error("Error loading learner stats", e);
@@ -979,7 +981,7 @@ function selectTicker(row, trElement) {
                 <div class="detail-item"><span class="label">Precio USD</span><span class="val">$${(row.Price || 0).toFixed(2)}</span></div>
                 <div class="detail-item"><span class="label">Precio MXN</span><span class="val" style="color:var(--success-color)">$${row.Price_MXN?.toFixed(2) || 'N/A'}</span></div>
                 <div class="detail-item"><span class="label">Score Heurístico</span><span class="val" style="color:var(--primary-color)">${row.Score || 0}/100</span></div>
-                <div class="detail-item"><span class="label">Score ML</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Source === 'ml_model' && hasNumericValue(row.ML_Score) ? `${Number(row.ML_Score).toFixed(1)}/100 <small style="font-size:10px;opacity:0.8;">(${escapeHtml(row.ML_Confidence || 'ML')})</small>` : 'N/D <small style="font-size:10px;opacity:0.8;">(solo heurística)</small>'}</span></div>
+                <div class="detail-item"><span class="label">Score ML</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Source === 'validated_ml_model' && hasNumericValue(row.ML_Score) ? `${Number(row.ML_Score).toFixed(1)}/100 <small style="font-size:10px;opacity:0.8;">(${escapeHtml(row.ML_Confidence || 'ML')})</small>` : `N/D <small style="font-size:10px;opacity:0.8;">(solo heurística${row.ML_Degraded_Reason ? ': '+escapeHtml(row.ML_Degraded_Reason) : ''})</small>`}</span></div>
             </div>
         </div>
 
@@ -1017,6 +1019,15 @@ function selectTicker(row, trElement) {
             <p><strong>Datos faltantes:</strong> ${row.Heuristic_Version ? ((row.Missing_Indicators || []).map(escapeHtml).join(', ') || 'ninguno') : 'no evaluado (resultado heredado)'}</p>
             ${(row.Signal_Restrictions || []).length ? `<p class="signal-blocked"><strong>Restricciones:</strong> ${row.Signal_Restrictions.map(escapeHtml).join(' · ')}</p>` : ''}
         </div>
+
+        ${row.Fusion_Explanation ? `
+        <div class="detail-section" style="border:1px solid var(--primary-color);border-radius:8px;padding:10px;">
+            <h3>Veredicto fusionado ${escapeHtml(row.Fusion_Version || '')}</h3>
+            <p><strong>A favor:</strong> ${(row.Fusion_Explanation.factors_for || []).map(escapeHtml).join(' · ')}</p>
+            <p><strong>En contra:</strong> ${(row.Fusion_Explanation.factors_against || []).map(escapeHtml).join(' · ')}</p>
+            <p><strong>Invalidación:</strong> ${(row.Fusion_Explanation.invalidation_triggers || []).map(escapeHtml).join(' · ')}</p>
+            ${row.Risk_Plan ? `<p><strong>Riesgo:</strong> ${row.Risk_Plan.position_size_shares} acciones · stop $${Number(row.Risk_Plan.stop_price).toFixed(2)} · pérdida máxima $${Number(row.Risk_Plan.maximum_loss).toFixed(2)} · horizonte ${escapeHtml(row.Risk_Plan.horizon)}</p>` : ''}
+        </div>` : ''}
         
         <div class="detail-section">
             <h3>Volatilidad y Fundamentales</h3>

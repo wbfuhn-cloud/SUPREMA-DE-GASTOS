@@ -1,0 +1,26 @@
+{
+  "schema": "inversiones-ia-fourier-evaluation/1.0",
+  "seed": 20261002,
+  "agreed_noise_snr": "sinusoid amplitude 0.01 / Gaussian sigma 0.002 = 5",
+  "max_fft_relative_error": 6.46391599919073e-15,
+  "max_period_error_bars": 0.0,
+  "noise_recovery_ratio": 1.0,
+  "stability": {
+    "eligible_windows": 117.0,
+    "persistence_ratio": 1.0
+  },
+  "latency_p95_ms": 0.38632997311651707,
+  "temporal_leakage_findings": 0,
+  "gates": {
+    "fft_relative_error_lte_1e_9": true,
+    "period_error_lte_1_bar": true,
+    "noise_recovery_gte_90pct": true,
+    "stability_gte_60pct": true,
+    "latency_p95_lte_50ms": true,
+    "temporal_leakage_zero": true,
+    "real_oos_ablation": false
+  },
+  "approved_for_signals": false,
+  "decision": "EXPERIMENT_ONLY",
+  "decision_reason": "No existe dataset trazable para una ablación walk-forward real baseline vs baseline + Fourier."
+}

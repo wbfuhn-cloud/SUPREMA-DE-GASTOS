@@ -23,6 +23,8 @@ if "%DO_UPDATE%"=="1" (
     )
 )
 
+echo [*] El actualizador de GitHub comprobara nuevas versiones al abrir la aplicacion.
+
 if not exist "%PYTHON%" (
     echo [*] Creando el entorno virtual...
     py -3 -m venv .venv 2>nul || python -m venv .venv

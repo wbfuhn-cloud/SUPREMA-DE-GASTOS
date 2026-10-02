@@ -25,6 +25,7 @@ from technical_engine import (
     macd_frame,
     rsi_series,
 )
+from signal_fusion import FUSION_VERSION, FusionInput, fuse_signal
 
 try:
     from recommendation_learner import get_learner
@@ -452,7 +453,14 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
         ml_score = None
         ml_conf = "NO DISPONIBLE"
         ml_breakdown = {}
-        ml_source = "fallback"
+        ml_source = "heuristic_fallback"
+        ml_prediction = None
+        calibrated_probability = None
+        model_version = "unavailable"
+        ml_ood = False
+        ml_degraded_reason = "model_not_loaded"
+        buy_score = None
+        exit_score = None
         try:
             from ml_predictor import get_ml_predictor
             predictor = get_ml_predictor()
@@ -474,8 +482,40 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             ml_conf = prediction.get('confidence_level', ml_conf)
             ml_breakdown = prediction.get('feature_breakdown', {})
             ml_source = prediction.get('source', ml_source)
+            ml_prediction = prediction.get('model_prediction')
+            calibrated_probability = prediction.get('calibrated_probability')
+            model_version = prediction.get('model_version', model_version)
+            ml_ood = bool(prediction.get('ood_detected'))
+            ml_degraded_reason = prediction.get('degraded_reason', '')
+            buy_score = prediction.get('buy_score')
+            exit_score = prediction.get('exit_score')
         except Exception as e:
             logger.debug(f"ML prediction error for {ticker}: {e}")
+
+        regime_map = {
+            'uptrend': 'alcista', 'lateral': 'lateral', 'noise': 'lateral',
+            'downtrend': 'bajista', 'jump': 'crisis', 'high_volatility': 'crisis',
+        }
+        fusion_horizons = {}
+        for horizon_name, horizon_result in heuristic['horizons'].items():
+            fusion_horizons[horizon_name] = fuse_signal(FusionInput(
+                symbol=ticker,
+                horizon=horizon_result['sessions'],
+                heuristic_score=float(horizon_result['directional_score']),
+                heuristic_state=horizon_result['state'],
+                data_quality=float(quote.get('quality_score', 0.0)),
+                regime=regime_map.get(heuristic['regime'], 'lateral'),
+                price=float(price),
+                atr=float(atr),
+                calibrated_prob_up=calibrated_probability,
+                calibrated_prob_down=None,
+                model_approved=ml_source == 'validated_ml_model',
+                ml_ood=ml_ood,
+                spectral_score=None,
+                spectral_validated=False,
+                leveraged_etf=is_leveraged,
+            ))
+        primary_fusion = fusion_horizons['swing']
 
         return {
             'Ticker':           ticker,
@@ -485,13 +525,29 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'ML_Confidence':    ml_conf,
             'ML_Breakdown':     ml_breakdown,
             'ML_Source':        ml_source,
+            'Model_Prediction': ml_prediction,
+            'Calibrated_Probability': calibrated_probability,
+            'Model_Version':    model_version,
+            'Top_Features':     ml_breakdown,
+            'ML_OOD_Detected':  ml_ood,
+            'ML_Degraded_Reason': ml_degraded_reason,
+            'Buy_Score':        buy_score,
+            'Exit_Score':       exit_score,
             'Quote':            quote,
             'Data_Quality':     quote.get('quality_score', 0.0),
             'Data_Quality_Issues': quote.get('quality_issues', []),
-            'Signal_Eligible':  heuristic['state'] != 'SIN SEÑAL',
+            'Signal_Eligible':  primary_fusion['state'] != 'SIN SEÑAL',
             'Is_Leveraged':     is_leveraged,
             'Viabilidad':       scores['etiqueta'],
-            'Signal_State':     heuristic['state'],
+            'Signal_State':     primary_fusion['state'],
+            'Fusion_Version':   FUSION_VERSION,
+            'Fusion_Horizons':  fusion_horizons,
+            'Fusion_Explanation': {
+                'factors_for': primary_fusion['factors_for'],
+                'factors_against': primary_fusion['factors_against'],
+                'invalidation_triggers': primary_fusion['invalidation_triggers'],
+            },
+            'Risk_Plan':        primary_fusion['risk_plan'],
             'Heuristic_Version': HEURISTIC_VERSION,
             'Horizon_Scores':   heuristic['horizons'],
             'Score_Contributions': heuristic['contributions'],
