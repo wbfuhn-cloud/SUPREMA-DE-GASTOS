@@ -344,22 +344,26 @@ def run_live_alert_loop():
                         continue
                         
                     # Evaluar acción
-                    score = r.get('Score', 0)
+                    score = r.get('Score')
                     price = r.get('Price', 0.0)
                     viabilidad = r.get('Viabilidad', '')
+                    signal_state = r.get('Signal_State', 'SIN SEÑAL')
+                    signal_eligible = r.get('Signal_Eligible') is True
                     
                     # Calcular confianza AI
                     conf_data = learner.get_confidence(ticker, r.get('Sector', ''), r.get('RSI', 50))
-                    ai_confidence = conf_data['confidence'] / 100.0
+                    confidence_value = conf_data.get('confidence') if conf_data.get('available') else None
+                    ai_confidence = confidence_value / 100.0 if confidence_value is not None else None
                     
                     action = None
                     reason = ""
-                    if score >= 75 and ai_confidence >= min_confidence and cfg.get('alert_on_buy', True):
+                    confidence_passes = ai_confidence is not None and ai_confidence >= min_confidence
+                    if signal_eligible and signal_state == 'COMPRAR' and confidence_passes and cfg.get('alert_on_buy', True):
                         action = "buy"
-                        reason = f"Score alto ({score}) y confianza AI ({ai_confidence*100:.1f}%). {r.get('Nota', '')}"
-                    elif score <= 25 and ai_confidence >= min_confidence and cfg.get('alert_on_sell', True):
+                        reason = f"Estado {signal_state}, heurística {r.get('Heuristic_Version')} y confianza AI ({ai_confidence*100:.1f}%). {r.get('Nota', '')}"
+                    elif signal_eligible and signal_state in {'REDUCIR', 'SALIR'} and confidence_passes and cfg.get('alert_on_sell', True):
                         action = "sell"
-                        reason = f"Score bajo ({score}) y confianza AI ({ai_confidence*100:.1f}%). {r.get('Nota', '')}"
+                        reason = f"Estado {signal_state}, heurística {r.get('Heuristic_Version')} y confianza AI ({ai_confidence*100:.1f}%). {r.get('Nota', '')}"
                         
                     if action and not learner.has_recent_alert(ticker, action):
                         # Enviar alerta Telegram

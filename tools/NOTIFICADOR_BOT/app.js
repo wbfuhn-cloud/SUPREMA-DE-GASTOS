@@ -975,28 +975,37 @@ function selectTicker(row, trElement) {
         <div class="detail-section">
             <h3>Desglose de Score</h3>
             <div class="detail-grid">
-                <div class="detail-item"><span class="label">Técnico</span><span class="val">${row.Score_Tech || 0}/40</span></div>
-                <div class="detail-item"><span class="label">Fundamental</span><span class="val">${fundamentalsAvailable ? `${row.Score_Fund || 0}/40` : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">Liquidez</span><span class="val">${row.Score_Liq || 0}/20</span></div>
+                <div class="detail-item"><span class="label">Técnico</span><span class="val">${hasNumericValue(row.Score_Tech) ? `${row.Score_Tech}/40` : 'N/D'}</span></div>
+                <div class="detail-item"><span class="label">Fundamental</span><span class="val">${fundamentalsAvailable && hasNumericValue(row.Score_Fund) ? `${row.Score_Fund}/40` : 'N/D'}</span></div>
+                <div class="detail-item"><span class="label">Liquidez</span><span class="val">${hasNumericValue(row.Score_Liq) ? `${row.Score_Liq}/20` : 'N/D'}</span></div>
             </div>
         </div>
 
         <div class="detail-section">
             <h3>Indicadores Técnicos</h3>
             <div class="detail-grid">
-                <div class="detail-item"><span class="label">RSI</span><span class="val">${row.RSI || 'N/A'}</span></div>
-                <div class="detail-item"><span class="label">MACD</span><span class="val">${(row.MACD || 0).toFixed(2)}</span></div>
-                <div class="detail-item"><span class="label">MA100</span><span class="val">$${row.MA100}</span></div>
-                <div class="detail-item"><span class="label">MA200</span><span class="val">$${row.MA200}</span></div>
+                <div class="detail-item"><span class="label">RSI</span><span class="val">${hasNumericValue(row.RSI) ? row.RSI : 'N/D'}</span></div>
+                <div class="detail-item"><span class="label">MACD / señal / hist.</span><span class="val">${hasNumericValue(row.MACD) && hasNumericValue(row.MACD_Signal) && hasNumericValue(row.MACD_Hist) ? `${Number(row.MACD).toFixed(2)} / ${Number(row.MACD_Signal).toFixed(2)} / ${Number(row.MACD_Hist).toFixed(2)}` : 'N/D'}</span></div>
+                <div class="detail-item"><span class="label">MA100</span><span class="val">${hasNumericValue(row.MA100) ? '$'+row.MA100 : 'N/D'}</span></div>
+                <div class="detail-item"><span class="label">MA200</span><span class="val">${hasNumericValue(row.MA200) ? '$'+row.MA200 : 'N/D'}</span></div>
             </div>
+        </div>
+
+        <div class="detail-section">
+            <h3>Motor heurístico ${escapeHtml(row.Heuristic_Version || 'sin versión')}</h3>
+            <p><strong>Estado:</strong> ${escapeHtml(row.Signal_State || 'SIN SEÑAL')}</p>
+            <p><strong>Horizontes:</strong> ${Object.entries(row.Horizon_Scores || {}).map(([name, item]) => `${escapeHtml(name)} ${escapeHtml(item.sessions)}: ${escapeHtml(item.state)} (${Number(item.score).toFixed(2)})`).join(' · ') || 'N/D'}</p>
+            <p><strong>Contribuciones:</strong> ${Object.entries(row.Score_Contributions || {}).map(([name, value]) => `${escapeHtml(name)} ${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)}`).join(' · ') || 'N/D'}</p>
+            <p><strong>Datos faltantes:</strong> ${row.Heuristic_Version ? ((row.Missing_Indicators || []).map(escapeHtml).join(', ') || 'ninguno') : 'no evaluado (resultado heredado)'}</p>
+            ${(row.Signal_Restrictions || []).length ? `<p class="signal-blocked"><strong>Restricciones:</strong> ${row.Signal_Restrictions.map(escapeHtml).join(' · ')}</p>` : ''}
         </div>
         
         <div class="detail-section">
             <h3>Volatilidad y Fundamentales</h3>
             <div class="detail-grid">
-                <div class="detail-item"><span class="label">ATR USD</span><span class="val">${row.ATR ? '$'+row.ATR.toFixed(2) : 'N/A'}</span></div>
-                <div class="detail-item"><span class="label">ATR MXN</span><span class="val">${row.ATR_MXN ? '$'+row.ATR_MXN.toFixed(2) : 'N/A'}</span></div>
-                <div class="detail-item"><span class="label">Vol %</span><span class="val">${row.Volatility_Percent ? row.Volatility_Percent.toFixed(2)+'%' : 'N/A'}</span></div>
+                <div class="detail-item"><span class="label">ATR USD</span><span class="val">${hasNumericValue(row.ATR) ? '$'+Number(row.ATR).toFixed(2) : 'N/D'}</span></div>
+                <div class="detail-item"><span class="label">ATR MXN</span><span class="val">${hasNumericValue(row.ATR_MXN) ? '$'+Number(row.ATR_MXN).toFixed(2) : 'N/D'}</span></div>
+                <div class="detail-item"><span class="label">Vol %</span><span class="val">${hasNumericValue(row.Volatility_Percent) ? Number(row.Volatility_Percent).toFixed(2)+'%' : 'N/D'}</span></div>
                 <div class="detail-item"><span class="label">Beta</span><span class="val">${fundamentalsAvailable && hasNumericValue(row.Beta) ? row.Beta : 'N/D'}</span></div>
             </div>
         </div>

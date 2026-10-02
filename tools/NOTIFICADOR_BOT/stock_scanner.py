@@ -17,6 +17,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
 
 from market_data import apply_adjusted_close, exchange_rate_contract, quote_from_history
+from technical_engine import (
+    HEURISTIC_VERSION,
+    atr_series,
+    bollinger_frame,
+    evaluate_heuristic,
+    macd_frame,
+    rsi_series,
+)
 
 try:
     from recommendation_learner import get_learner
@@ -266,35 +274,20 @@ def clear_ticker_cache():
 
 # ── Indicadores técnicos ─────────────────────────────────────────────────────
 def calculate_rsi(close: pd.Series, periods=14) -> float:
-    delta = close.diff()
-    gain  = delta.clip(lower=0).rolling(periods).mean()
-    loss  = (-delta.clip(upper=0)).rolling(periods).mean()
-    rs    = gain / loss.replace(0, np.nan)
-    rsi   = 100 - (100 / (1 + rs))
-    v = rsi.iloc[-1]
-    return float(v) if not pd.isna(v) else 50.0
+    value = rsi_series(close, periods).iloc[-1]
+    return float(value) if not pd.isna(value) else float("nan")
 
 def calculate_macd(close: pd.Series, fast=12, slow=26, sig=9):
-    if len(close) < slow: return 0.0, 0.0, 0.0
-    e1 = close.ewm(span=fast, adjust=False).mean()
-    e2 = close.ewm(span=slow, adjust=False).mean()
-    macd = e1 - e2
-    signal = macd.ewm(span=sig, adjust=False).mean()
-    hist = macd - signal
-    def safe(s): v = s.iloc[-1]; return float(v) if not pd.isna(v) else 0.0
-    return safe(macd), safe(signal), safe(hist)
+    result = macd_frame(close, fast, slow, sig).iloc[-1]
+    return tuple(float(result[name]) if not pd.isna(result[name]) else float("nan") for name in ("macd", "signal", "histogram"))
 
 def calculate_bollinger_bands(close: pd.Series, window=20, std=2):
-    rm  = close.rolling(window).mean()
-    rs  = close.rolling(window).std()
-    def safe(s): v = s.iloc[-1]; return float(v) if not pd.isna(v) else 0.0
-    return safe(rm + rs*std), safe(rm), safe(rm - rs*std)
+    result = bollinger_frame(close, window, std).iloc[-1]
+    return tuple(float(result[name]) if not pd.isna(result[name]) else float("nan") for name in ("upper", "middle", "lower"))
 
 def calculate_atr(df: pd.DataFrame, period=14) -> float:
-    h, l, c = df['High'], df['Low'], df['Close']
-    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
-    v = tr.rolling(period).mean().iloc[-1]
-    return float(v) if not pd.isna(v) else 0.0
+    value = atr_series(df, period).iloc[-1]
+    return float(value) if not pd.isna(value) else float("nan")
 
 def analyze_volume(df: pd.DataFrame, window=20):
     avg  = df['Volume'].rolling(window).mean().iloc[-1]
@@ -311,74 +304,18 @@ def _score_label(score: float) -> str:
     if score >= 35: return "🟠 MODERADA"
     return "🔴 EVITAR"
 
-def calculate_composite_score(df: pd.DataFrame, info: dict) -> dict:
-    close = df['Close']
-    
-    # Obtener pesos adaptativos o usar defaults si no está disponible el learner
-    learner = get_learner() if get_learner else None
-    weights = learner.get_adaptive_weights() if learner else {}
-    
-    # Helpers con valores por defecto
-    def w(key, default=1.0): return weights.get(key, default)
-
-    score = 0
-
-    # RSI (0-20 pts) -> Modificado por pesos
-    rsi = calculate_rsi(close)
-    if   40 <= rsi <= 60: score += 20 * w('rsi_optimal', 1.0)
-    elif 30 <= rsi <  40 or 60 < rsi <= 70: score += 10
-    elif rsi < 30: score += 15 * w('rsi_extreme_low', 1.0)
-    else: score += 3
-
-    # Tendencia vs SMA50/SMA200 (0-30 pts)
-    price  = float(close.iloc[-1])
-    sma50  = float(close.rolling(50).mean().iloc[-1])  if len(close) >= 50  else price
-    sma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else price
-    if price > sma50 > sma200: score += 30 * w('trend_sma', 1.0)
-    elif price > sma50:        score += 18
-    elif price > sma200:       score += 8
-
-    # MACD (0-20 pts)
-    macd, sig, hist = calculate_macd(close)
-    if   macd > sig and hist > 0: score += 20 * w('macd_bullish', 1.0)
-    elif macd > sig:              score += 10
-
-    # Volumen (0-15 pts)
-    avg_vol, _, vol_ratio = analyze_volume(df)
-    if   avg_vol > 2_000_000: score += 15 * w('volume_high', 1.0)
-    elif avg_vol > 500_000:   score += 8
-    elif avg_vol > 100_000:   score += 3
-    
-    if vol_ratio > 1.5: score += 5 * w('volume_ratio', 1.0)
-
-    # Market Cap (0-15 pts) — desde fast_info para no hacer llamada extra
-    mkt_cap = info.get('marketCap', 0) or 0
-    if   mkt_cap > 10e9: score += 15 * w('market_cap_large', 1.0)
-    elif mkt_cap > 2e9:  score += 8
-    elif mkt_cap > 300e6: score += 3
-    
-    # Bollinger Bands
-    bb_u, bb_m, bb_l = calculate_bollinger_bands(close)
-    if bb_l > 0 and price <= bb_l: score += 10 * w('bb_oversold', 1.0)
-    if bb_u > 0 and price >= bb_u: score -= 15 * w('bb_overbought', 1.0) # Penalización adaptativa
-
-    # Retornar total e indicadores activos
-    total = min(max(score, 0), 100)
-    
-    active_ind = []
-    if 30 <= rsi <= 55: active_ind.append("rsi_optimal")
-    if price > sma50 > sma200: active_ind.append("trend_sma")
-    if macd > sig and hist > 0: active_ind.append("macd_bullish")
-    if avg_vol > 2_000_000: active_ind.append("volume_high")
-    if bb_l > 0 and price <= bb_l: active_ind.append("bb_oversold")
-
+def calculate_composite_score(df: pd.DataFrame, info: dict, quote=None, is_leveraged=False) -> dict:
+    evaluation = evaluate_heuristic(df, quote=quote, is_leveraged=is_leveraged)
+    indicators = evaluation['indicators']
+    average_volume = indicators.get('average_volume_20')
     return {
-        'score_total': total,
-        'score_tecnico': min(rsi, 40),
-        'score_fundamental': 0,
-        'score_liquidez': min(int(avg_vol / 200_000), 20),
-        'etiqueta': _score_label(total),
-        'active_indicators': active_ind
+        'score_total': evaluation['score'],
+        'score_tecnico': round(evaluation['score'] * 0.4, 2),
+        'score_fundamental': None,
+        'score_liquidez': round(min(20.0, (average_volume or 0) / 100_000), 2) if average_volume is not None else None,
+        'etiqueta': evaluation['state'],
+        'heuristic': evaluation,
+        'active_indicators': [name for name, value in evaluation['signals'].items() if value is not None],
     }
 
 # ── Régimen de mercado (directo a Yahoo v8) ──────────────────────────────────
@@ -476,8 +413,8 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             return None
 
         # Calcular indicadores
-        sma100 = float(close.rolling(100).mean().iloc[-1]) if len(close) >= 100 else price
-        sma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else price
+        sma100 = float(close.rolling(100).mean().iloc[-1]) if len(close) >= 100 else None
+        sma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
         rsi    = calculate_rsi(close)
         macd, macd_sig, macd_hist = calculate_macd(close)
         bb_u, bb_m, bb_l = calculate_bollinger_bands(close)
@@ -485,17 +422,18 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
         avg_vol, curr_vol, vol_ratio = analyze_volume(history)
         vol_pct = (atr / price * 100) if price > 0 else 0
 
-        # Score
-        scores = calculate_composite_score(history, info)
+        is_leveraged = ticker.upper() in LEVERAGED_ETFS
+        scores = calculate_composite_score(history, info, quote=quote, is_leveraged=is_leveraged)
+        heuristic = scores['heuristic']
 
         # Nota rápida
         note = ""
-        if macd > macd_sig and macd_hist > 0 and price > sma100 > sma200:
+        if None not in (sma100, sma200) and macd > macd_sig and macd_hist > 0 and price > sma100 > sma200:
             note = "🟢 Tendencia alcista confirmada"
         elif price <= bb_l and bb_l > 0:
             note = "💎 Zona de sobreventa (BB)"
-        elif macd < macd_sig:
-            note = "📉 MACD bajista"
+        elif macd < macd_sig and macd_hist < 0:
+            note = "📉 MACD por debajo de su señal; histograma negativo"
         elif vol_ratio > 2.0:
             note = "📊 Volumen anormalmente alto"
 
@@ -503,10 +441,7 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
 
         # Penalizar ETFs apalancados: su decaimiento estructural hace que
         # el analisis tecnico clasico NO sea aplicable (SOXS, SOXL, TQQQ, etc.)
-        is_leveraged = ticker.upper() in LEVERAGED_ETFS
         if is_leveraged:
-            scores['score_total'] = min(scores['score_total'], 45)  # tope maximo
-            scores['etiqueta'] = 'ADVERTENCIA: Apalancado'
             warning = 'ALERTA: ETF apalancado - analisis tecnico NO es confiable'
             if not note:
                 note = warning
@@ -551,20 +486,28 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'ML_Breakdown':     ml_breakdown,
             'ML_Source':        ml_source,
             'Quote':            quote,
-            'Data_Quality':     quote['quality_score'],
-            'Data_Quality_Issues': quote['quality_issues'],
-            'Signal_Eligible':  not quote['is_stale'] and quote['quality_score'] >= 0.95,
+            'Data_Quality':     quote.get('quality_score', 0.0),
+            'Data_Quality_Issues': quote.get('quality_issues', []),
+            'Signal_Eligible':  heuristic['state'] != 'SIN SEÑAL',
             'Is_Leveraged':     is_leveraged,
             'Viabilidad':       scores['etiqueta'],
+            'Signal_State':     heuristic['state'],
+            'Heuristic_Version': HEURISTIC_VERSION,
+            'Horizon_Scores':   heuristic['horizons'],
+            'Score_Contributions': heuristic['contributions'],
+            'Missing_Indicators': heuristic['missing'],
+            'Signal_Restrictions': heuristic['restrictions'],
+            'Indicator_Spec':   heuristic['indicator_spec'],
             'Score_Tech':       scores['score_tecnico'],
             'Score_Fund':       scores['score_fundamental'],
             'Score_Liq':        scores['score_liquidez'],
             'RSI':              round(rsi, 2),
-            'MA100':            round(sma100, 2),
-            'MA200':            round(sma200, 2),
+            'MA100':            round(sma100, 2) if sma100 is not None else None,
+            'MA200':            round(sma200, 2) if sma200 is not None else None,
             'MACD':             round(macd, 2),
             'MACD_Signal':      round(macd_sig, 2),
             'MACD_Hist':        round(macd_hist, 2),
+            'MACD_Hist_Slope':  round(heuristic['indicators']['macd_histogram_slope'], 4),
             'BB_Upper':         round(bb_u, 2),
             'BB_Lower':         round(bb_l, 2),
             'ATR':              round(atr, 2),
@@ -583,7 +526,7 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'Market_Cap':       info.get('marketCap'),
             'Fundamentals_Available': info.get('marketCap') is not None or beta is not None,
             'Nota':             note,
-            'AI_Confidence':    0,  # Se rellenará más adelante si se pide
+            'AI_Confidence':    None,
             'AI_Notes':         [],
         }
     except Exception as e:
@@ -768,8 +711,7 @@ def fetch_stock_data(progress_callback=None, stop_event=None, use_cache=True, ma
             try:
                 r = future.result()
                 if r:
-                    r['Score'] = round(r['Score'] * score_mod, 1)
-                    r['Viabilidad'] = _score_label(r['Score'])
+                    r['Market_Regime_Modifier'] = score_mod
                     
                     # Calcular confianza si hay learner
                     if get_learner:
@@ -779,10 +721,6 @@ def fetch_stock_data(progress_callback=None, stop_event=None, use_cache=True, ma
                         r['AI_Sample_Size'] = conf.get('sample_size', 0)
                         r['AI_Notes'] = conf['notes']
                         
-                        # Ajustar etiqueta si la confianza es muy baja o muy alta
-                        if conf.get('confidence') is not None and conf['confidence'] < 30 and 'EXCELENTE' in r['Viabilidad']:
-                            r['Viabilidad'] = "🟡 BUENA (Riesgo IA)"
-                    
                     results.append(r)
             except: pass
 

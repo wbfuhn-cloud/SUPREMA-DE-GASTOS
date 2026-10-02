@@ -12,6 +12,7 @@ from stock_scanner import (
     _get_usd_mxn, LEVERAGED_ETFS
 )
 from market_data import exchange_rate_contract, quote_from_history
+from technical_engine import HEURISTIC_VERSION, evaluate_heuristic
 
 
 def _is_leveraged_etf(ticker: str) -> bool:
@@ -54,14 +55,15 @@ def analyze_ticker_strategy(
                 raise ValueError("La cotización canónica no corresponde al ticker")
             quote = dict(quote_override)
         price  = float(quote["price"])
-        rsi    = calculate_rsi(close)
-        macd, signal, hist = calculate_macd(close)
-        bb_upper, bb_mid, bb_lower = calculate_bollinger_bands(close)
-        sma50  = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50  else price
-        sma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else price
-
-        buy_signals = 0.0
-        reasons     = []
+        is_leveraged = _is_leveraged_etf(ticker_symbol)
+        heuristic = evaluate_heuristic(df, quote=quote, is_leveraged=is_leveraged)
+        rsi = heuristic["indicators"].get("rsi")
+        reasons = [
+            f"{name}: {value:+.2f} puntos"
+            for name, value in heuristic["contributions"].items()
+            if name != "baseline"
+        ]
+        reasons.extend(heuristic["restrictions"])
 
         # Cálculo de Ganancia/Pérdida si hay precio de entrada
         pl_pct = 0
@@ -69,70 +71,19 @@ def analyze_ticker_strategy(
             pl_pct = ((price / entry_price) - 1) * 100
             if pl_pct > 0:
                 reasons.append(f"💰 Ganancia actual: +{pl_pct:.1f}%")
-                if pl_pct > 15: buy_signals -= 0.5 # Incentivo a tomar ganancias
+                if pl_pct > 15:
+                    reasons.append("Ganancia >15%: evaluar reducción de riesgo")
             else:
                 reasons.append(f"🔻 Pérdida actual: {pl_pct:.1f}%")
-                if pl_pct < -10: buy_signals -= 1 # Alerta de stop loss psicológico
+                if pl_pct < -10:
+                    reasons.append("Pérdida <-10%: regla de salida de protección")
 
-        # RSI
-        if ticker_symbol.upper() == 'TSLA':
-            if rsi < 30:
-                buy_signals += 1; reasons.append(f"✅ RSI sobreventa extrema ({rsi:.1f})")
-            elif rsi > 70:
-                buy_signals -= 1; reasons.append(f"⚠️ RSI sobrecompra ({rsi:.1f})")
-        else:
-            if rsi < 40:
-                buy_signals += 1; reasons.append(f"✅ RSI bajo — oportunidad ({rsi:.1f})")
-            elif rsi > 65:
-                buy_signals -= 1; reasons.append(f"⚠️ RSI alto ({rsi:.1f})")
-
-        # Bollinger Bands
-        if bb_lower > 0 and price < bb_lower:
-            buy_signals += 1; reasons.append("✅ Precio bajo Banda Bollinger Inferior")
-        elif bb_upper > 0 and price > bb_upper:
-            buy_signals -= 1; reasons.append("⚠️ Precio sobre Banda Bollinger Superior")
-
-        # SMA 200
-        if not pd.isna(sma200):
-            if abs(price - sma200) / sma200 < 0.05 and price > sma200:
-                buy_signals += 1; reasons.append("✅ Rebote en soporte SMA 200")
-            elif price < sma200:
-                buy_signals -= 0.5; reasons.append("⚠️ Tendencia bajista (precio < SMA 200)")
-
-        # MACD
-        if macd > signal and hist > 0:
-            buy_signals += 0.5; reasons.append("✅ MACD alcista confirmado")
-        elif macd < signal and hist < 0:
-            buy_signals -= 0.5; reasons.append("⚠️ MACD bajista confirmado")
-
-        # Veredicto final
-        if _is_leveraged_etf(ticker_symbol):
-            # Los ETFs apalancados NUNCA deben recibir senal de COMPRA
-            # Su decaimiento estructural hace que cualquier posicion larga pierda con el tiempo
-            if buy_signals >= 0.5 and buy_signals < 2:
-                verdict = "MEDIA SENIAL (ETP apalancado - NO recomendado)"
-                buy_signals = 0  # neutralizar
-            elif buy_signals >= 2:
-                verdict = "EVITAR (ETF apalancado - decaimiento estructural)"
-                buy_signals = -0.5  # forzar venta parcial
-            elif buy_signals >= 0:  # entre 0 y 0.5
-                verdict = "MANTEN con stop-loss (ETP apalancado)"
-            else:
-                verdict = "REDUCIR o VENDER (para ETFs apalancados)"
-        else:
-            if buy_signals >= 2:
-                verdict = "COMPRA / AUMENTA (Excelente oportunidad)"
-            elif 0.5 <= buy_signals < 2:
-                verdict = "MANTEN / ACUMULA (Aun tiene potencial)"
-            elif -0.5 < buy_signals < 0.5:
-                verdict = "MANTEN (Riesgo neutral)"
-            elif -2 < buy_signals <= -0.5:
-                if entry_price > 0 and pl_pct < 0:
-                    verdict = "REDUCIR (Limita pérdidas/Reduce riesgo)"
-                else:
-                    verdict = "VENTA PARCIAL (Toma ganancias/Reduce riesgo)"
-            else:
-                verdict = "VENTA TOTAL (Alto riesgo de caida)"
+        state = heuristic["state"]
+        if state != "SIN SEÑAL" and entry_price > 0 and pl_pct < -10:
+            state = "SALIR"
+        elif state == "COMPRAR" and entry_price > 0 and pl_pct > 15:
+            state = "REDUCIR"
+        verdict = state
 
         return {
             "ticker":       ticker_symbol,
@@ -140,13 +91,18 @@ def analyze_ticker_strategy(
             "entry_price":  entry_price,
             "qty":          qty,
             "pl_pct":       round(pl_pct, 2),
-            "rsi":          round(rsi, 2),
+            "rsi":          round(rsi, 2) if rsi is not None else None,
             "verdict":      verdict,
             "reasons":      reasons,
-            "is_leveraged": _is_leveraged_etf(ticker_symbol),
+            "is_leveraged": is_leveraged,
+            "heuristic_version": HEURISTIC_VERSION,
+            "horizon_scores": heuristic["horizons"],
+            "score": heuristic["score"],
+            "score_contributions": heuristic["contributions"],
+            "missing_indicators": heuristic["missing"],
             "quote":        quote,
             "data_quality": quote.get("quality_score", 0.0),
-            "signal_eligible": not quote.get("is_stale", True) and quote.get("quality_score", 0.0) >= 0.95,
+            "signal_eligible": state != "SIN SEÑAL",
             "error":        None
         }
     except Exception as e:
