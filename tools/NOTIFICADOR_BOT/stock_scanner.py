@@ -498,9 +498,10 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
                 note = warning + ' | ' + note
 
         # Predicción de Machine Learning
-        ml_score = scores['score_total']
-        ml_conf = "HEURÍSTICO"
+        ml_score = None
+        ml_conf = "NO DISPONIBLE"
         ml_breakdown = {}
+        ml_source = "fallback"
         try:
             from ml_predictor import get_ml_predictor
             predictor = get_ml_predictor()
@@ -521,6 +522,7 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             ml_score = prediction.get('ml_score', ml_score)
             ml_conf = prediction.get('confidence_level', ml_conf)
             ml_breakdown = prediction.get('feature_breakdown', {})
+            ml_source = prediction.get('source', ml_source)
         except Exception as e:
             logger.debug(f"ML prediction error for {ticker}: {e}")
 
@@ -531,6 +533,7 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'ML_Score':         ml_score,
             'ML_Confidence':    ml_conf,
             'ML_Breakdown':     ml_breakdown,
+            'ML_Source':        ml_source,
             'Is_Leveraged':     is_leveraged,
             'Viabilidad':       scores['etiqueta'],
             'Score_Tech':       scores['score_tecnico'],
@@ -750,11 +753,13 @@ def fetch_stock_data(progress_callback=None, stop_event=None, use_cache=True, ma
                     # Calcular confianza si hay learner
                     if get_learner:
                         conf = get_learner().get_confidence(r['Ticker'], r.get('Sector', ''), r.get('RSI', 50))
-                        r['AI_Confidence'] = conf['confidence']
+                        r['AI_Confidence'] = conf.get('confidence')
+                        r['AI_Confidence_Available'] = conf.get('available', False)
+                        r['AI_Sample_Size'] = conf.get('sample_size', 0)
                         r['AI_Notes'] = conf['notes']
                         
                         # Ajustar etiqueta si la confianza es muy baja o muy alta
-                        if conf['confidence'] < 30 and 'EXCELENTE' in r['Viabilidad']:
+                        if conf.get('confidence') is not None and conf['confidence'] < 30 and 'EXCELENTE' in r['Viabilidad']:
                             r['Viabilidad'] = "🟡 BUENA (Riesgo IA)"
                     
                     results.append(r)

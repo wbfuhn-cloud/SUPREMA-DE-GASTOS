@@ -272,9 +272,9 @@ class StockMLPredictor:
         la predicción estructurada, la probabilidad, intervalos y top features.
         """
         result = {
-            "ml_score": float(ticker_data.get("score") or 50.0),
-            "probability": float(ticker_data.get("score") or 50.0) / 100.0,
-            "confidence_level": "HEURÍSTICO",
+            "ml_score": None,
+            "probability": None,
+            "confidence_level": "NO DISPONIBLE",
             "feature_breakdown": {},
             "source": "fallback"
         }
@@ -333,8 +333,8 @@ class StockMLPredictor:
             "trained": self.model is not None,
             "last_trained": self.last_trained,
             "metrics": self.metrics,
-            "db_path": str(self.db_path),
-            "model_path": str(self.model_path)
+            "database_configured": self.db_path.exists(),
+            "model_artifact": self.model_path.name
         }
 
 

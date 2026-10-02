@@ -518,14 +518,14 @@ class RecommendationDB:
                 WHERE verified=1 AND rsi BETWEEN ? AND ?
             """, (rsi - 10, rsi + 10)).fetchone()
 
-            # Calcular confianza compuesta
-            confidence = 50.0  # Base neutral
+            # Calcular confianza únicamente con evidencia verificada. Un 50%
+            # sin muestras parece una probabilidad real y era engañoso.
+            weighted_rates = []
             notes = []
 
             if direct and direct['total'] > 0:
                 direct_rate = (direct['good'] / direct['total']) * 100
-                # Peso alto para datos directos
-                confidence = confidence * 0.4 + direct_rate * 0.6
+                weighted_rates.append((direct_rate, 0.6, direct['total']))
                 if direct['bad'] > direct['good']:
                     notes.append(f"⚠️ {ticker} ha fallado {direct['bad']}/{direct['total']} veces")
                 elif direct['good'] > 0:
@@ -533,14 +533,14 @@ class RecommendationDB:
 
             if sector_data and sector_data['total'] > 3:
                 sector_rate = (sector_data['good'] / sector_data['total']) * 100
-                confidence = confidence * 0.7 + sector_rate * 0.3
+                weighted_rates.append((sector_rate, 0.3, sector_data['total']))
                 if sector_data['avg_change'] and sector_data['avg_change'] < -5:
                     notes.append(f"⚠️ Sector '{sector}' con tendencia negativa")
 
             if rsi_similar and rsi_similar['total'] > 5:
                 rsi_rate = (rsi_similar['good'] / rsi_similar['total']) * 100
+                weighted_rates.append((rsi_rate, 0.1, rsi_similar['total']))
                 if rsi_rate < 30:
-                    confidence *= 0.8
                     notes.append(f"⚠️ RSI ~{rsi:.0f} ha tenido baja precisión")
 
             # Bonus/penalización por user feedback negativo
@@ -548,6 +548,20 @@ class RecommendationDB:
                 SELECT COUNT(*) c FROM recommendations
                 WHERE ticker=? AND user_feedback='bad'
             """, (ticker,)).fetchone()['c']
+            if not weighted_rates:
+                return {
+                    'available': False,
+                    'confidence': None,
+                    'level': 'no_disponible',
+                    'notes': ['Sin resultados verificados suficientes'],
+                    'sample_size': 0,
+                    'direct_history': direct['total'] if direct else 0,
+                }
+
+            total_weight = sum(weight for _, weight, _ in weighted_rates)
+            confidence = sum(rate * weight for rate, weight, _ in weighted_rates) / total_weight
+            sample_size = sum(samples for _, _, samples in weighted_rates)
+
             if user_bad > 0:
                 confidence *= 0.7
                 notes.append(f"👎 {user_bad} feedback(s) negativos del usuario")
@@ -557,9 +571,11 @@ class RecommendationDB:
             level = 'alta' if confidence >= 70 else 'media' if confidence >= 40 else 'baja'
 
             return {
+                'available': True,
                 'confidence': round(confidence, 1),
                 'level': level,
                 'notes': notes,
+                'sample_size': sample_size,
                 'direct_history': direct['total'] if direct else 0,
             }
         finally:

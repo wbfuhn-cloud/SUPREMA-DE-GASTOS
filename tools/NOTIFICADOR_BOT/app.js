@@ -49,8 +49,9 @@ const cacheStats = document.getElementById("cache-stats");
 const progressBar = document.getElementById("progress-bar");
 const progressText = document.getElementById("progress-text");
 
-const tabBtns = document.querySelectorAll(".tab-btn");
+const tabBtns = document.querySelectorAll(".tab-btn[data-tab]");
 const tabContents = document.querySelectorAll(".tab-content");
+const btnPortfolioShortcut = document.getElementById("btn-portfolio-shortcut");
 
 const volatilityTableBody = document.querySelector("#volatility-table tbody");
 const gemsTableBody = document.querySelector("#gems-table tbody");
@@ -71,6 +72,66 @@ let statusInterval = null;
 let autoScanInterval = null;
 let allResults = [];
 let selectedTickerData = null;
+
+function hasNumericValue(value) {
+    return value !== null && value !== undefined && Number.isFinite(Number(value));
+}
+
+function showToast(message, type = "info") {
+    const region = document.getElementById("toast-region");
+    if (!region) return;
+    const toast = document.createElement("div");
+    toast.className = `app-toast ${type}`;
+    toast.setAttribute("role", type === "error" ? "alert" : "status");
+    toast.textContent = message;
+    region.appendChild(toast);
+    setTimeout(() => toast.remove(), 4500);
+}
+
+function requestConfirmation(message) {
+    const dialog = document.getElementById("app-confirm-dialog");
+    const messageEl = document.getElementById("app-confirm-message");
+    const accept = document.getElementById("app-confirm-accept");
+    const cancel = document.getElementById("app-confirm-cancel");
+    if (!dialog || !messageEl || !accept || !cancel || typeof dialog.showModal !== "function") {
+        return Promise.resolve(false);
+    }
+
+    messageEl.textContent = message;
+    dialog.showModal();
+    cancel.focus();
+    return new Promise(resolve => {
+        const finish = value => {
+            accept.removeEventListener("click", onAccept);
+            cancel.removeEventListener("click", onCancel);
+            dialog.removeEventListener("cancel", onCancel);
+            if (dialog.open) dialog.close();
+            resolve(value);
+        };
+        const onAccept = () => finish(true);
+        const onCancel = event => { event.preventDefault(); finish(false); };
+        accept.addEventListener("click", onAccept);
+        cancel.addEventListener("click", onCancel);
+        dialog.addEventListener("cancel", onCancel);
+    });
+}
+
+function activateTab(tabId, button) {
+    const panel = document.getElementById(tabId);
+    if (!panel || !button) {
+        showToast("La sección solicitada no está disponible.", "error");
+        return false;
+    }
+
+    tabBtns.forEach(item => {
+        const active = item === button;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-selected", String(active));
+        item.tabIndex = active ? 0 : -1;
+    });
+    tabContents.forEach(content => content.classList.toggle("active", content === panel));
+    return true;
+}
 
 // Initialization
 document.addEventListener("DOMContentLoaded", async () => {
@@ -129,22 +190,31 @@ if (btnAddPortfolio) {
     btnAddPortfolio.addEventListener("click", handleAddPortfolio);
 }
 
-const btnRefreshPrices = document.getElementById("btn-refresh-prices");
-const pricesTbody = document.getElementById("prices-tbody");
-
-if (btnRefreshPrices) {
-    btnRefreshPrices.addEventListener("click", loadPricesHistory);
-}
-
-// Cargar datos al cambiar de pestaña
+// Navegación accesible y carga diferida de paneles.
 tabBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
         const tabId = btn.dataset.tab;
-        if (tabId === 'portfolio-tab') analyzePortfolio();
-        if (tabId === 'prices-tab') loadPricesHistory();
-        if (tabId === 'ai-tab') { loadLearnerStats(); loadLearnerHistory(); }
+        if (!activateTab(tabId, btn)) return;
+        if (tabId === 'ai-tab') {
+            await Promise.all([loadLearnerStats(), loadLearnerHistory()]);
+        }
+    });
+    btn.addEventListener("keydown", event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        const buttons = Array.from(tabBtns);
+        const current = buttons.indexOf(btn);
+        let next = current;
+        if (event.key === 'ArrowLeft') next = (current - 1 + buttons.length) % buttons.length;
+        if (event.key === 'ArrowRight') next = (current + 1) % buttons.length;
+        if (event.key === 'Home') next = 0;
+        if (event.key === 'End') next = buttons.length - 1;
+        buttons[next].focus();
+        buttons[next].click();
     });
 });
+
+if (btnPortfolioShortcut) btnPortfolioShortcut.addEventListener("click", scrollToPortfolio);
 
 const btnRefreshAi = document.getElementById("btn-refresh-ai");
 if (btnRefreshAi) {
@@ -159,15 +229,16 @@ if (btnFeedbackBad) {
     btnFeedbackBad.addEventListener("click", async () => {
         if (!selectedTickerData) return;
         const ticker = selectedTickerData.Ticker;
-        if (!confirm(`¿Estás seguro de reportar la recomendación de ${ticker} como mala?`)) return;
+        if (!await requestConfirmation(`¿Reportar la recomendación de ${ticker} como mala?`)) return;
         
         try {
-            await fetch(`${API_URL}/learner/feedback`, {
+            const response = await fetch(`${API_URL}/learner/feedback`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ticker: ticker, feedback: 'bad' })
             });
-            alert(`Gracias por el feedback. Se penalizarán los indicadores de ${ticker}.`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            showToast(`Feedback registrado para ${ticker}.`, "success");
             btnFeedbackBad.disabled = true;
             btnFeedbackBad.innerHTML = '<i data-lucide="check"></i> Reportado';
             if (document.getElementById('ai-tab').classList.contains('active')) {
@@ -175,62 +246,31 @@ if (btnFeedbackBad) {
             }
         } catch (e) {
             console.error("Error enviando feedback", e);
+            showToast("No fue posible registrar el feedback.", "error");
         }
     });
 }
 
-async function loadPricesHistory() {
-    if (!pricesTbody) return;
-    pricesTbody.innerHTML = `<tr><td colspan="7"><i data-lucide="loader" class="lucide-spin"></i> Cargando historial...</td></tr>`;
-    
-    try {
-        const res = await fetch(`${API_URL}/prices/history`);
-        const data = await res.json();
-        
-        if (data.status === 'ok') {
-            pricesTbody.innerHTML = '';
-            if (data.prices.length === 0) {
-                pricesTbody.innerHTML = `<tr class="empty-row"><td colspan="7">No hay hallazgos registrados aún.</td></tr>`;
-                return;
-            }
-            
-            data.prices.forEach(row => {
-                const tr = document.createElement('tr');
-                const fecha = row.fecha.replace('T', ' ').substring(0, 16);
-                const desc = row.descuento_pct ? `<span class="badge alta">-${row.descuento_pct}%</span>` : '—';
-                
-                tr.innerHTML = `
-                    <td>${fecha}</td>
-                    <td><span class="badge neutro">${row.tienda}</span></td>
-                    <td>${row.producto_buscado}</td>
-                    <td style="font-size:0.85em">${row.nombre}</td>
-                    <td style="font-weight:bold; color:var(--success-color)">$${row.precio_actual.toLocaleString()}</td>
-                    <td>${desc}</td>
-                    <td><a href="${row.url}" target="_blank" class="btn sm-btn primary-btn"><i class="fa-solid fa-external-link"></i> Ver</a></td>
-                `;
-                pricesTbody.appendChild(tr);
-            });
-        }
-    } catch (e) {
-        console.error("Error loading prices", e);
-        pricesTbody.innerHTML = `<tr><td colspan="7" style="color:var(--danger-color)">Error al cargar datos</td></tr>`;
-    }
-}
-
 async function loadLearnerStats() {
+    const accuracyEl = document.getElementById('ai-accuracy');
+    const avgEl = document.getElementById('ai-avg-change');
+    const verifiedEl = document.getElementById('ai-verified');
+    const adjustmentsEl = document.getElementById('ai-adjustments');
+    [accuracyEl, avgEl, verifiedEl, adjustmentsEl].forEach(el => { if (el) el.textContent = '…'; });
     try {
         const res = await fetch(`${API_URL}/learner/stats`);
         const data = await res.json();
+        if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
         if (data.status === 'ok') {
-            document.getElementById('ai-accuracy').textContent = `${data.stats.accuracy_pct}%`;
+            const hasVerified = Number(data.stats.verified) > 0;
+            accuracyEl.textContent = hasVerified ? `${data.stats.accuracy_pct}%` : 'N/D';
             
             const avg = data.stats.avg_change_1d;
-            const avgEl = document.getElementById('ai-avg-change');
-            avgEl.textContent = `${avg > 0 ? '+' : ''}${avg}%`;
+            avgEl.textContent = hasVerified ? `${avg > 0 ? '+' : ''}${avg}%` : 'N/D';
             avgEl.style.color = avg > 0 ? 'var(--success-color)' : (avg < 0 ? 'var(--danger-color)' : 'white');
             
-            document.getElementById('ai-verified').textContent = data.stats.verified;
-            document.getElementById('ai-adjustments').textContent = data.stats.total_adjustments;
+            verifiedEl.textContent = data.stats.verified;
+            adjustmentsEl.textContent = data.stats.total_adjustments;
         }
 
         // Consultar estado de Machine Learning
@@ -245,6 +285,8 @@ async function loadLearnerStats() {
         }
     } catch (e) {
         console.error("Error loading learner stats", e);
+        [accuracyEl, avgEl, verifiedEl, adjustmentsEl].forEach(el => { if (el) el.textContent = 'Error'; });
+        showToast("No fue posible cargar las métricas de aprendizaje.", "error");
     }
 }
 
@@ -296,15 +338,6 @@ async function loadLearnerHistory() {
 filterViability.addEventListener("change", renderTables);
 searchTicker.addEventListener("input", renderTables);
 
-tabBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
-        tabBtns.forEach(b => b.classList.remove("active"));
-        tabContents.forEach(c => c.classList.remove("active"));
-        btn.classList.add("active");
-        document.getElementById(btn.dataset.tab).classList.add("active");
-    });
-});
-
 document.querySelectorAll(".risk-inputs input").forEach(input => {
     input.addEventListener("input", () => {
         if (selectedTickerData) calculateRisk(selectedTickerData);
@@ -332,16 +365,19 @@ async function updateCacheStats() {
 }
 
 async function clearCache(target) {
-    if(!confirm(`¿Estás seguro de que quieres limpiar la caché de ${target}?`)) return;
+    if(!await requestConfirmation(`¿Limpiar la caché de ${target}?`)) return;
     try {
-        await fetch(`${API_URL}/cache/clear`, {
+        const response = await fetch(`${API_URL}/cache/clear`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ target })
         });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         updateCacheStats();
+        showToast("Caché limpiada correctamente.", "success");
     } catch (e) {
         console.error("Error clearing cache", e);
+        showToast("No fue posible limpiar la caché.", "error");
     }
 }
 
@@ -388,7 +424,7 @@ async function handleAddPortfolio() {
     const price = parseFloat(portPrice.value);
     
     if (!ticker || isNaN(qty) || isNaN(price)) {
-        alert("Por favor completa todos los campos correctamente.");
+        showToast("Completa todos los campos correctamente.", "error");
         return;
     }
     
@@ -571,10 +607,10 @@ function inspectPortfolioTicker(row) {
 window.inspectPortfolioTicker = inspectPortfolioTicker;
 
 async function removePortfolioItem(ticker) {
-    if (!confirm(`¿Eliminar ${ticker} del portafolio?`)) return;
+    if (!await requestConfirmation(`¿Eliminar ${ticker} del portafolio?`)) return;
     try {
         // En server.py creamos una lógica para borrar o actualizar
-        await fetch(`${API_URL}/portfolio/config`, {
+        const response = await fetch(`${API_URL}/portfolio/config`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
@@ -582,8 +618,13 @@ async function removePortfolioItem(ticker) {
                 ticker: ticker 
             })
         });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         analyzePortfolio();
-    } catch (e) {}
+        showToast(`${ticker} se eliminó del portafolio.`, "success");
+    } catch (e) {
+        console.error("Error removing portfolio item", e);
+        showToast(`No fue posible eliminar ${ticker}.`, "error");
+    }
 }
 
 function startStatusPolling() {
@@ -715,8 +756,9 @@ function renderGBMCards(container, items) {
         const badgeClass = getBadgeClass(row.Viabilidad);
         const vol = row.Volatility_Percent ? `${row.Volatility_Percent.toFixed(2)}%` : '0%';
         const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
-        const aiConf = row.AI_Confidence ? `${row.AI_Confidence.toFixed(0)}%` : 'N/A';
-        const aiConfClass = (row.AI_Confidence > 75) ? 'alta' : (row.AI_Confidence > 50) ? 'media' : 'baja';
+        const hasAiConfidence = row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence);
+        const aiConf = hasAiConfidence ? `${Number(row.AI_Confidence).toFixed(0)}%` : 'N/D';
+        const aiConfClass = !hasAiConfidence ? 'neutro' : (row.AI_Confidence > 75) ? 'alta' : (row.AI_Confidence > 50) ? 'media' : 'baja';
 
         card.innerHTML = `
             <div class="gbm-card-header">
@@ -817,7 +859,7 @@ function renderTables() {
                 <td>$${row.ATR_MXN?.toFixed(2) || '0'} MXN</td>
                 <td>${row.RSI}</td>
                 <td>
-                    ${row.AI_Confidence ? `<span style="font-size:10px;color:var(--accent-color)">[IA:${row.AI_Confidence.toFixed(0)}%]</span> ` : ''}
+                    ${row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence) ? `<span style="font-size:10px;color:var(--accent-color)">[Histórico:${Number(row.AI_Confidence).toFixed(0)}% · n=${row.AI_Sample_Size || 0}]</span> ` : '<span style="font-size:10px;color:var(--text-secondary)">[Histórico: N/D]</span> '}
                     <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; display:inline-block; vertical-align:middle;">${row.Nota || ''}</span>
                 </td>
             `;
@@ -898,7 +940,7 @@ function selectTicker(row, trElement) {
                 <div class="detail-item"><span class="label">Precio USD</span><span class="val">$${(row.Price || 0).toFixed(2)}</span></div>
                 <div class="detail-item"><span class="label">Precio MXN</span><span class="val" style="color:var(--success-color)">$${row.Price_MXN?.toFixed(2) || 'N/A'}</span></div>
                 <div class="detail-item"><span class="label">Score Heurístico</span><span class="val" style="color:var(--primary-color)">${row.Score || 0}/100</span></div>
-                <div class="detail-item"><span class="label">ML Score (IA)</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Score !== undefined ? row.ML_Score : (row.Score || 0)}/100 <small style="font-size:10px;opacity:0.8;">(${row.ML_Confidence || 'ML'})</small></span></div>
+                <div class="detail-item"><span class="label">Score ML</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Source === 'ml_model' && hasNumericValue(row.ML_Score) ? `${Number(row.ML_Score).toFixed(1)}/100 <small style="font-size:10px;opacity:0.8;">(${escapeHtml(row.ML_Confidence || 'ML')})</small>` : 'N/D <small style="font-size:10px;opacity:0.8;">(solo heurística)</small>'}</span></div>
             </div>
         </div>
         
@@ -958,7 +1000,7 @@ function selectTicker(row, trElement) {
     const aiConfContent = document.getElementById("ai-confidence-content");
     const btnFeedback = document.getElementById("btn-feedback-bad");
     if (aiConfContent) {
-        if (row.AI_Confidence) {
+        if (row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence)) {
             let color = 'var(--text-secondary)';
             if (row.AI_Confidence >= 70) color = 'var(--success-color)';
             else if (row.AI_Confidence <= 30) color = 'var(--danger-color)';

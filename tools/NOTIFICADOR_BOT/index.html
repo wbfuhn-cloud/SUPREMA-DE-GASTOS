@@ -111,11 +111,11 @@
             <!-- Left Panel: Data Tables / Cards -->
             <section class="glass-panel tables-section">
                 
-                <div class="tabs-header">
-                    <button class="tab-btn active" data-tab="volatility-tab"><i class="fa-solid fa-bolt"></i> Alta Volatilidad</button>
-                    <button class="tab-btn" data-tab="gems-tab"><i class="fa-solid fa-gem"></i> Cazador de Gemas</button>
-                    <button class="tab-btn" data-tab="ai-tab"><i class="fa-solid fa-brain"></i> IA Adaptativa</button>
-                    <button class="tab-btn portfolio-shortcut-btn" onclick="scrollToPortfolio()"><i class="fa-solid fa-briefcase"></i> Mi Portafolio ↓</button>
+                <div class="tabs-header" role="tablist" aria-label="Resultados del escáner">
+                    <button class="tab-btn active" data-tab="volatility-tab" role="tab" aria-controls="volatility-tab" aria-selected="true" tabindex="0"><i class="fa-solid fa-bolt"></i> Alta Volatilidad</button>
+                    <button class="tab-btn" data-tab="gems-tab" role="tab" aria-controls="gems-tab" aria-selected="false" tabindex="-1"><i class="fa-solid fa-gem"></i> Cazador de Gemas</button>
+                    <button class="tab-btn" data-tab="ai-tab" role="tab" aria-controls="ai-tab" aria-selected="false" tabindex="-1"><i class="fa-solid fa-brain"></i> IA Adaptativa</button>
+                    <button id="btn-portfolio-shortcut" class="portfolio-shortcut-btn"><i class="fa-solid fa-briefcase"></i> Mi Portafolio ↓</button>
                     
                     <div class="view-mode-toggle" id="view-mode-container" style="margin-left: auto;">
                         <button class="view-mode-btn active" id="btn-view-cards" onclick="switchViewMode('cards')"><i class="fa-solid fa-border-all"></i> Tarjetas GBM</button>
@@ -124,7 +124,7 @@
                 </div>
 
                 <!-- View Container for Volatility -->
-                <div class="tab-content active" id="volatility-tab">
+                <div class="tab-content active" id="volatility-tab" role="tabpanel">
                     <!-- Cards Grid Container -->
                     <div id="volatility-cards-container" class="gbm-cards-grid">
                         <div class="placeholder-text" style="grid-column: 1/-1; padding: 40px; text-align: center;">No hay datos cargados. Inicie un escaneo para ver las tarjetas estilo GBM.</div>
@@ -151,7 +151,7 @@
                 </div>
 
                 <!-- Gems Tab -->
-                <div class="tab-content" id="gems-tab">
+                <div class="tab-content" id="gems-tab" role="tabpanel">
                     <div style="padding: 12px 20px; color: #60A5FA; font-size: 13px; font-weight: 700; background: rgba(0, 82, 255, 0.1); border-bottom: 1px solid var(--glass-border);">
                         <i class="fa-solid fa-rocket"></i> <strong>Cazador de Gemas (Breakouts):</strong> Filtrando acciones con aumentos masivos de volumen (>1.5x), capitalización media y cruce MACD a punto de estallar.
                     </div>
@@ -179,7 +179,7 @@
                 </div>
 
                 <!-- AI Tab -->
-                <div class="tab-content" id="ai-tab">
+                <div class="tab-content" id="ai-tab" role="tabpanel">
                     <div class="glass-panel" style="margin: 15px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center; background: rgba(0,0,0,0.3);">
                         <div class="stat-card">
                             <h4 style="margin:0; font-size:11px; text-transform:uppercase; color:var(--text-secondary)">Aciertos (Precisión)</h4>
@@ -243,15 +243,15 @@
                     <h2><i class="fa-solid fa-scale-balanced"></i> Calculadora de Riesgo</h2>
                     <div class="risk-inputs">
                         <div class="input-group">
-                            <label>Capital ($)</label>
+                            <label for="risk-capital">Capital ($)</label>
                             <input type="number" id="risk-capital" class="glass-input" value="10000">
                         </div>
                         <div class="input-group">
-                            <label>Riesgo (%)</label>
+                            <label for="risk-pct">Riesgo (%)</label>
                             <input type="number" step="0.1" id="risk-pct" class="glass-input" value="2.0">
                         </div>
                         <div class="input-group">
-                            <label>Mult. ATR</label>
+                            <label for="risk-atr">Mult. ATR</label>
                             <input type="number" step="0.1" id="risk-atr" class="glass-input" value="2.0">
                         </div>
                     </div>
@@ -348,6 +348,16 @@
             </div>
         </section>
 
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <dialog id="app-confirm-dialog" class="app-confirm-dialog" aria-labelledby="app-confirm-title" aria-describedby="app-confirm-message">
+        <h2 id="app-confirm-title">Confirmar acción</h2>
+        <p id="app-confirm-message"></p>
+        <div class="app-confirm-actions">
+            <button id="app-confirm-cancel" class="btn">Cancelar</button>
+            <button id="app-confirm-accept" class="btn danger-btn">Confirmar</button>
+        </div>
+    </dialog>
+
     <!-- Template Tarjeta GBM -->
     <script>
     // Diagnóstico visible v2.7.7: si el JS del visor falla, muestra el error en vez de página en blanco
@@ -367,7 +377,7 @@
     window.addEventListener('error', function(ev) { handleGlobalError(ev.message || ev.error); });
     window.addEventListener('unhandledrejection', function(ev) { handleGlobalError(ev.reason); });
     </script>
-    <script src="/visor/app.js?v=3.1.1"></script>
+    <script src="/visor/app.js?v=3.2.0"></script>
     <script>try { lucide.createIcons(); } catch(e) {}</script>
     <!-- Liquid Glass macOS v2.7.7: desactivado temporalmente para Fase 0
     <script>
