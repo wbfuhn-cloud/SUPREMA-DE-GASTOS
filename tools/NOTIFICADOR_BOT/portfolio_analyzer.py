@@ -11,22 +11,49 @@ from stock_scanner import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands,
     _get_usd_mxn, LEVERAGED_ETFS
 )
+from market_data import exchange_rate_contract, quote_from_history
 
 
 def _is_leveraged_etf(ticker: str) -> bool:
     return ticker.upper() in LEVERAGED_ETFS
 
 
-def analyze_ticker_strategy(ticker_symbol: str, entry_price: float = 0, qty: float = 0) -> dict:
+def analyze_ticker_strategy(
+    ticker_symbol: str,
+    entry_price: float = 0,
+    qty: float = 0,
+    quote_override: dict | None = None,
+) -> dict:
     """Análisis técnico completo con veredicto de acción para un ticker."""
     try:
         df = _fetch_history_raw(ticker_symbol, period='1y')
 
         if df is None or len(df) < 50:
+            if quote_override and quote_override.get("price") is not None:
+                return {
+                    "ticker": ticker_symbol,
+                    "price": round(float(quote_override["price"]), 2),
+                    "entry_price": entry_price,
+                    "qty": qty,
+                    "quote": dict(quote_override),
+                    "data_quality": quote_override.get("quality_score", 0.0),
+                    "signal_eligible": False,
+                    "error": "Sin datos históricos suficientes para emitir veredicto",
+                }
             return {"ticker": ticker_symbol, "error": "Sin datos históricos suficientes"}
 
         close  = df['Close'].dropna()
-        price  = float(close.iloc[-1])
+        quote = quote_from_history(
+            ticker_symbol,
+            df,
+            interval='1d',
+            adjusted=bool(df.attrs.get('adjusted', False)),
+        )
+        if quote_override:
+            if quote_override.get("symbol") != ticker_symbol.upper():
+                raise ValueError("La cotización canónica no corresponde al ticker")
+            quote = dict(quote_override)
+        price  = float(quote["price"])
         rsi    = calculate_rsi(close)
         macd, signal, hist = calculate_macd(close)
         bb_upper, bb_mid, bb_lower = calculate_bollinger_bands(close)
@@ -117,19 +144,24 @@ def analyze_ticker_strategy(ticker_symbol: str, entry_price: float = 0, qty: flo
             "verdict":      verdict,
             "reasons":      reasons,
             "is_leveraged": _is_leveraged_etf(ticker_symbol),
+            "quote":        quote,
+            "data_quality": quote.get("quality_score", 0.0),
+            "signal_eligible": not quote.get("is_stale", True) and quote.get("quality_score", 0.0) >= 0.95,
             "error":        None
         }
     except Exception as e:
         return {"ticker": ticker_symbol, "error": str(e)}
 
 
-def analyze_portfolio(portfolio_data) -> list:
+def analyze_portfolio(portfolio_data, quote_overrides: dict | None = None) -> list:
     """
     Analiza el portafolio.
     portfolio_data puede ser una lista de tickers o un dict {TICKER: {qty, avg_price}}
     """
     from concurrent.futures import ThreadPoolExecutor
     exchange_rate = _get_usd_mxn()
+    rate_meta = exchange_rate_contract(exchange_rate)
+    quote_overrides = quote_overrides or {}
     results = []
     tasks = []
 
@@ -143,14 +175,15 @@ def analyze_portfolio(portfolio_data) -> list:
     if not tasks: return []
 
     def _worker(task):
-        return analyze_ticker_strategy(task[0], task[1], task[2])
+        return analyze_ticker_strategy(task[0], task[1], task[2], quote_overrides.get(task[0]))
 
     with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as ex:
         futures = list(ex.map(_worker, tasks))
 
     for res in futures:
-        if res.get("error") is None:
+        if res.get("price") is not None:
             res["price_mxn"] = round(res["price"] * exchange_rate, 2)
+            res["exchange_rate"] = rate_meta
             if res["entry_price"] > 0:
                 res["pl_val"] = round((res["price"] - res["entry_price"]) * res["qty"], 2)
                 res["pl_mxn"] = round(res["pl_val"] * exchange_rate, 2)

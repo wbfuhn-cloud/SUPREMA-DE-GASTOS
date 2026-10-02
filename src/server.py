@@ -3,7 +3,7 @@ from flask_cors import CORS  # type: ignore
 import sys
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 import time as _time
 import json
@@ -102,6 +102,7 @@ SCAN_STATE: dict = {
     'results':        [],
     'market_context': None,
     'exchange_rate':  20.5,
+    'generated_at_utc': None,
     'stop_event':     threading.Event(),
 }
 
@@ -113,8 +114,31 @@ def _load_scan_persistence():
         try:
             with open(SCAN_CACHE_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                SCAN_STATE['results'] = data.get('results', [])
+                loaded_results = data.get('results', [])
+                try:
+                    from market_data import ensure_quote_contract
+                    upgraded = []
+                    for result in loaded_results:
+                        quote = ensure_quote_contract(result)
+                        upgraded.append({
+                            **result,
+                            'Quote': quote,
+                            # Los resultados heredados no prueban si un cero era
+                            # real o un valor faltante convertido silenciosamente.
+                            'Fundamentals_Available': (
+                                result.get('Fundamentals_Available') is True
+                                and quote.get('provider') != 'legacy_unknown'
+                            ),
+                            'Data_Quality': quote.get('quality_score', 0.0),
+                            'Data_Quality_Issues': quote.get('quality_issues', []),
+                            'Signal_Eligible': not quote.get('is_stale', True) and quote.get('quality_score', 0.0) >= 0.95,
+                        })
+                    loaded_results = upgraded
+                except Exception as exc:
+                    logger.warning(f"No se pudo actualizar contrato de cotización: {exc}")
+                SCAN_STATE['results'] = loaded_results
                 SCAN_STATE['market_context'] = data.get('market_context')
+                SCAN_STATE['generated_at_utc'] = data.get('generated_at_utc') or data.get('timestamp')
                 SCAN_STATE['message'] = 'Resultados cargados (historial)'
         except Exception as e:
             logger.error(f"Error cargando persistencia de escaneo: {e}")
@@ -127,7 +151,8 @@ def _save_scan_persistence():
             json.dump({
                 'results': SCAN_STATE['results'],
                 'market_context': SCAN_STATE['market_context'],
-                'timestamp': datetime.now().isoformat()
+                'data_contract_version': '3.0',
+                'generated_at_utc': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             }, f, indent=4)
     except Exception as e:
         logger.error(f"Error guardando persistencia de escaneo: {e}")
@@ -203,6 +228,7 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
                 SCAN_STATE['message']        = 'Escaneo Finalizado'
                 
             SCAN_STATE['progress'] = 1.0
+            SCAN_STATE['generated_at_utc'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             _save_scan_persistence()
             
             # Enviar notificación a Telegram
@@ -822,9 +848,12 @@ def get_results():
             er = round(r['Price_MXN'] / r['Price'], 4)
             break
     return jsonify({
+        'status':          'ok',
+        'data_contract_version': '3.0',
         'results':        SCAN_STATE['results'],
         'market_context': SCAN_STATE['market_context'],
         'exchange_rate':  er,
+        'generated_at_utc': SCAN_STATE.get('generated_at_utc'),
     })
 
 
@@ -959,7 +988,12 @@ def analyze_portfolio_api():
     portfolio = config_mgr.get_portfolio()
     try:
         from portfolio_analyzer import analyze_portfolio
-        results = analyze_portfolio(portfolio)
+        quote_overrides = {}
+        for result in SCAN_STATE.get('results', []):
+            quote = result.get('Quote')
+            if isinstance(quote, dict) and quote.get('symbol'):
+                quote_overrides[quote['symbol']] = quote
+        results = analyze_portfolio(portfolio, quote_overrides=quote_overrides)
         return jsonify({'status': 'ok', 'results': results})
     except Exception as e:
         logger.error(f"Error analizando portafolio: {e}", exc_info=True)

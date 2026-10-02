@@ -874,3 +874,26 @@ body {
     background: rgba(148, 163, 184, 0.12);
 }
 
+.data-freshness {
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid var(--glass-border);
+    font-size: 10px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.data-freshness.fresh,
+.data-contract.fresh strong { color: var(--success-color); }
+
+.data-freshness.stale,
+.data-contract.stale strong,
+.signal-blocked { color: var(--warning-color); }
+
+.signal-blocked {
+    font-weight: 800;
+    text-transform: uppercase;
+}
+

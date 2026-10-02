@@ -16,6 +16,8 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
 
+from market_data import apply_adjusted_close, exchange_rate_contract, quote_from_history
+
 try:
     from recommendation_learner import get_learner
 except ImportError:
@@ -69,7 +71,16 @@ def _fetch_history_raw(ticker: str, period='1y', interval='1d') -> pd.DataFrame 
             'Close':  ohlcv.get('close', []),
             'Volume': ohlcv.get('volume', []),
         }, index=pd.to_datetime(timestamps, unit='s', utc=True))
-        df.index = df.index.tz_convert('America/New_York').tz_localize(None)  # type: ignore
+        adjusted_values = (
+            res.get('indicators', {}).get('adjclose', [{}])[0].get('adjclose', [])
+        )
+        events = res.get('events', {}) or {}
+        df.attrs['corporate_action_count'] = sum(len(items) for items in events.values() if isinstance(items, dict))
+        if adjusted_values and len(adjusted_values) == len(df):
+            df = apply_adjusted_close(df, adjusted_values)
+        # Mantener UTC con zona horaria: eliminarla impedía medir frescura y
+        # reconciliar una misma cotización entre módulos.
+        df.index = df.index.tz_convert('UTC')  # type: ignore
         df = df.dropna(subset=['Close'])
         return df if len(df) > 0 else None
     except Exception as e:
@@ -432,10 +443,16 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
         if history is None or len(history) < 50:
             return None
 
+        quote = quote_from_history(
+            ticker,
+            history,
+            interval='1d',
+            adjusted=bool(history.attrs.get('adjusted', False)),
+        )
         close  = history['Close'].dropna()
         if len(close) < 50: return None
 
-        price  = float(close.iloc[-1])
+        price  = float(quote['price'])
         if price <= 0: return None
 
         # Info (marketCap, beta) via batch quote
@@ -482,8 +499,7 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
         elif vol_ratio > 2.0:
             note = "📊 Volumen anormalmente alto"
 
-        beta = (info.get('beta') or 0)
-        if beta is None: beta = 0
+        beta = info.get('beta')
 
         # Penalizar ETFs apalancados: su decaimiento estructural hace que
         # el analisis tecnico clasico NO sea aplicable (SOXS, SOXL, TQQQ, etc.)
@@ -534,6 +550,10 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'ML_Confidence':    ml_conf,
             'ML_Breakdown':     ml_breakdown,
             'ML_Source':        ml_source,
+            'Quote':            quote,
+            'Data_Quality':     quote['quality_score'],
+            'Data_Quality_Issues': quote['quality_issues'],
+            'Signal_Eligible':  not quote['is_stale'] and quote['quality_score'] >= 0.95,
             'Is_Leveraged':     is_leveraged,
             'Viabilidad':       scores['etiqueta'],
             'Score_Tech':       scores['score_tecnico'],
@@ -551,8 +571,8 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'Volatility_Percent': round(vol_pct, 2),
             'Avg_Volume':       int(avg_vol),
             'Vol_Ratio':        round(vol_ratio, 2),
-            'Beta':             round(float(beta), 2),
-            'Gross Margin':     0,
+            'Beta':             round(float(beta), 2) if beta is not None else None,
+            'Gross Margin':     None,
             'PE_Ratio':         None,
             'Debt_Equity':      None,
             'Rev_Growth':       None,
@@ -560,7 +580,8 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'Current_Ratio':    None,
             'Sector':           info.get('sector', 'N/A'),
             'Industry':         info.get('industry', 'N/A'),
-            'Market_Cap':       info.get('marketCap', 0) or 0,
+            'Market_Cap':       info.get('marketCap'),
+            'Fundamentals_Available': info.get('marketCap') is not None or beta is not None,
             'Nota':             note,
             'AI_Confidence':    0,  # Se rellenará más adelante si se pide
             'AI_Notes':         [],
@@ -780,6 +801,7 @@ def fetch_stock_data(progress_callback=None, stop_event=None, use_cache=True, ma
     
     # ── Convertir precios a MXN ───────────────────────────────────────────────
     usd_mxn = _get_usd_mxn()
+    rate_meta = exchange_rate_contract(usd_mxn)
     for r in final_results:
         if 'Price' in r and r['Price']:
             r['Price_MXN'] = round(r['Price'] * usd_mxn, 2)
@@ -787,6 +809,7 @@ def fetch_stock_data(progress_callback=None, stop_event=None, use_cache=True, ma
         else:
             r['Price_MXN'] = 0
             r['ATR_MXN'] = 0
+        r['Exchange_Rate'] = rate_meta
     cb(f"Tipo de cambio USD/MXN: {usd_mxn:.2f}", 0.95)
     
     # ── IA ADAPTATIVA: Registrar recomendaciones de este escaneo ──────────────

@@ -77,6 +77,21 @@ function hasNumericValue(value) {
     return value !== null && value !== undefined && Number.isFinite(Number(value));
 }
 
+function quoteStatus(row) {
+    const quote = row.Quote || row.quote;
+    if (!quote || !quote.market_timestamp) {
+        return { label: 'Datos sin timestamp', cssClass: 'stale', detail: 'Proveedor no identificado' };
+    }
+    const timestamp = new Date(quote.market_timestamp);
+    const formatted = Number.isNaN(timestamp.getTime()) ? quote.market_timestamp : timestamp.toLocaleString();
+    const quality = hasNumericValue(quote.quality_score) ? `${(Number(quote.quality_score) * 100).toFixed(0)}%` : 'N/D';
+    return {
+        label: quote.is_stale ? 'Datos vencidos' : 'Datos vigentes',
+        cssClass: quote.is_stale ? 'stale' : 'fresh',
+        detail: `${quote.provider || 'proveedor N/D'} · ${formatted} · calidad ${quality}`,
+    };
+}
+
 function showToast(message, type = "info") {
     const region = document.getElementById("toast-region");
     if (!region) return;
@@ -759,6 +774,7 @@ function renderGBMCards(container, items) {
         const hasAiConfidence = row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence);
         const aiConf = hasAiConfidence ? `${Number(row.AI_Confidence).toFixed(0)}%` : 'N/D';
         const aiConfClass = !hasAiConfidence ? 'neutro' : (row.AI_Confidence > 75) ? 'alta' : (row.AI_Confidence > 50) ? 'media' : 'baja';
+        const dataStatus = quoteStatus(row);
 
         card.innerHTML = `
             <div class="gbm-card-header">
@@ -795,6 +811,9 @@ function renderGBMCards(container, items) {
 
             <div style="font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 4px; border-top: 1px solid var(--glass-border);">
                 <i class="fa-solid fa-circle-info" style="color: #0052FF;"></i> ${row.Nota || 'Sugerencia de entrada IA'}
+            </div>
+            <div class="data-freshness ${dataStatus.cssClass}" title="${escapeHtml(dataStatus.detail)}">
+                ${dataStatus.label} · ${escapeHtml(dataStatus.detail)}
             </div>
         `;
 
@@ -929,6 +948,8 @@ function selectTicker(row, trElement) {
     // Update Details Panel
     const badgeClass = getBadgeClass(row.Viabilidad);
     
+    const dataStatus = quoteStatus(row);
+    const fundamentalsAvailable = row.Fundamentals_Available === true;
     let detailsHTML = `
         <div class="detail-section">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -943,12 +964,19 @@ function selectTicker(row, trElement) {
                 <div class="detail-item"><span class="label">Score ML</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Source === 'ml_model' && hasNumericValue(row.ML_Score) ? `${Number(row.ML_Score).toFixed(1)}/100 <small style="font-size:10px;opacity:0.8;">(${escapeHtml(row.ML_Confidence || 'ML')})</small>` : 'N/D <small style="font-size:10px;opacity:0.8;">(solo heurística)</small>'}</span></div>
             </div>
         </div>
+
+        <div class="detail-section data-contract ${dataStatus.cssClass}">
+            <h3>Calidad y frescura</h3>
+            <p><strong>${dataStatus.label}</strong></p>
+            <p>${escapeHtml(dataStatus.detail)}</p>
+            ${row.Signal_Eligible === false || row.signal_eligible === false ? '<p class="signal-blocked">SIN SEÑAL: datos vencidos o calidad insuficiente.</p>' : ''}
+        </div>
         
         <div class="detail-section">
             <h3>Desglose de Score</h3>
             <div class="detail-grid">
                 <div class="detail-item"><span class="label">Técnico</span><span class="val">${row.Score_Tech || 0}/40</span></div>
-                <div class="detail-item"><span class="label">Fundamental</span><span class="val">${row.Score_Fund || 0}/40</span></div>
+                <div class="detail-item"><span class="label">Fundamental</span><span class="val">${fundamentalsAvailable ? `${row.Score_Fund || 0}/40` : 'N/D'}</span></div>
                 <div class="detail-item"><span class="label">Liquidez</span><span class="val">${row.Score_Liq || 0}/20</span></div>
             </div>
         </div>
@@ -969,7 +997,7 @@ function selectTicker(row, trElement) {
                 <div class="detail-item"><span class="label">ATR USD</span><span class="val">${row.ATR ? '$'+row.ATR.toFixed(2) : 'N/A'}</span></div>
                 <div class="detail-item"><span class="label">ATR MXN</span><span class="val">${row.ATR_MXN ? '$'+row.ATR_MXN.toFixed(2) : 'N/A'}</span></div>
                 <div class="detail-item"><span class="label">Vol %</span><span class="val">${row.Volatility_Percent ? row.Volatility_Percent.toFixed(2)+'%' : 'N/A'}</span></div>
-                <div class="detail-item"><span class="label">Beta</span><span class="val">${row.Beta}</span></div>
+                <div class="detail-item"><span class="label">Beta</span><span class="val">${fundamentalsAvailable && hasNumericValue(row.Beta) ? row.Beta : 'N/D'}</span></div>
             </div>
         </div>
         
