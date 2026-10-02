@@ -389,8 +389,25 @@
     <!-- Template Tarjeta GBM -->
     <script>
     // Diagnóstico visible v2.7.7: si el JS del visor falla, muestra el error en vez de página en blanco
-    function handleGlobalError(msg) {
+    function classifyClientError(msg) {
+        var text = String(msg || 'Error sin detalle').toLowerCase();
+        if (/null|undefined|classlist|queryselector/.test(text)) return { code: 'DOM_NULL', label: 'Interfaz incompleta' };
+        if (/fetch|network|timeout|http|conexi/.test(text)) return { code: 'NETWORK_API', label: 'Red o API' };
+        if (/unauthorized|no autorizado|csrf|rate limit|429/.test(text)) return { code: 'AUTH_SECURITY', label: 'Acceso o seguridad' };
+        if (/schema|contract|nan|invalid|missing|faltante/.test(text)) return { code: 'DATA_CONTRACT', label: 'Contrato de datos' };
+        if (/ticker|quote|signal|riesgo|market|modelo/.test(text)) return { code: 'FINANCIAL_ENGINE', label: 'Motor financiero' };
+        if (/render|style|lucide|canvas|webgl/.test(text)) return { code: 'RENDERING', label: 'Renderizado' };
+        return { code: 'UNKNOWN', label: 'No clasificado' };
+    }
+    function reportClientError(payload) {
         try {
+            fetch('/api/bolsa/client-errors', { method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload), keepalive: true }).catch(function(){});
+        } catch (e) {}
+    }
+    function handleGlobalError(msg, source, line, stack) {
+        try {
+            var classified = classifyClientError(msg);
             var el = document.getElementById('bolsa-js-error');
             if (!el) {
                 el = document.createElement('div');
@@ -399,13 +416,15 @@
                 document.body.appendChild(el);
             }
             el.style.display = 'block';
-            el.textContent = 'Error JS en /bolsa: ' + msg + ' — abre /api/bolsa/health para diagnóstico';
+            el.textContent = '[' + classified.code + '] ' + classified.label + ': ' + msg + ' — diagnóstico en /api/bolsa/health';
+            reportClientError({ message: String(msg), component: 'bolsa-ui', source: source || '', line: line || null,
+                stack: String(stack || '').slice(0, 1000) });
         } catch (e) {}
     }
-    window.addEventListener('error', function(ev) { handleGlobalError(ev.message || ev.error); });
-    window.addEventListener('unhandledrejection', function(ev) { handleGlobalError(ev.reason); });
+    window.addEventListener('error', function(ev) { handleGlobalError(ev.message || ev.error, ev.filename, ev.lineno, ev.error && ev.error.stack); });
+    window.addEventListener('unhandledrejection', function(ev) { handleGlobalError(ev.reason && (ev.reason.message || ev.reason), '', null, ev.reason && ev.reason.stack); });
     </script>
-    <script src="/visor/app.js?v=3.2.0"></script>
+    <script src="/visor/app.js?v=3.2.1"></script>
     <script>try { lucide.createIcons(); } catch(e) {}</script>
     <!-- Liquid Glass macOS v2.7.7: desactivado temporalmente para Fase 0
     <script>

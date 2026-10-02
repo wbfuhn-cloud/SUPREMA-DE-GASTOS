@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request, make_response, send_file, send_from_directory, render_template, g
 from flask_cors import CORS  # type: ignore
+from werkzeug.exceptions import HTTPException
 import sys
 import os
 import logging
@@ -32,6 +33,7 @@ sys.path.append(os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT'))
 from production_controls import (KillSwitch, OperationalMetrics, RateLimiter,
                                  authorized_write, correlation_id)
 from release_governance import current_project_gate
+from error_taxonomy import ERROR_CATEGORIES, ErrorRegistry, sanitize_public_error
 fetch_stock_data = process_single_ticker = None
 get_cache_stats = clear_cache = get_ticker_cache_stats = clear_ticker_cache = None
 calculate_position_size = analyze_portfolio = None
@@ -100,6 +102,7 @@ CORS(app)
 operations_metrics = OperationalMetrics()
 api_rate_limiter = RateLimiter(limit=int(os.getenv('BOLSA_RATE_LIMIT', '120')), window_seconds=60)
 operations_kill_switch = KillSwitch(Path(root_dir) / 'database' / 'kill_switch.json')
+application_errors = ErrorRegistry(max_items=200)
 WRITE_PATHS = ('/api/portfolio', '/api/learner/feedback', '/api/ml/retrain',
                '/api/scan/start', '/api/bolsa/operations/kill-switch')
 
@@ -133,6 +136,22 @@ def _operational_response_headers(response):
                             'method': request.method, 'path': request.path,
                             'status': response.status_code, 'latency_ms': round(elapsed, 2)}))
     return response
+
+
+@app.errorhandler(Exception)
+def _classify_unhandled_error(error):
+    if isinstance(error, HTTPException):
+        return error
+    request_id = getattr(g, 'correlation_id', correlation_id())
+    item = application_errors.record({
+        'message': str(error), 'component': 'server', 'source': request.path,
+        'status_code': 500, 'correlation_id': request_id,
+    })
+    logger.exception("Error no controlado [%s] %s", item['category'], request_id)
+    if request.path.startswith('/api/'):
+        return jsonify({'status': 'error', 'error': item['category'],
+                        'message': 'Error interno controlado', 'correlation_id': request_id}), 500
+    return _html_response(_error_page(f"Error interno · referencia {request_id}")), 500
 
 
 @app.before_request
@@ -630,7 +649,7 @@ def dashboard():
 
     except Exception as e:
         logger.error(f"Error generando dashboard: {e}", exc_info=True)
-        return _html_response(_error_page(str(e))), 500
+        return _html_response(_error_page(sanitize_public_error(e))), 500
 
 
 @app.route('/transactions')
@@ -668,7 +687,7 @@ def transactions_view():
 
     except Exception as e:
         logger.error(f"Error generando transacciones: {e}", exc_info=True)
-        return _html_response(_error_page(str(e))), 500
+        return _html_response(_error_page(sanitize_public_error(e))), 500
 
 
 @app.route('/details')
@@ -686,7 +705,7 @@ def details_view():
 
     except Exception as e:
         logger.error(f"Error generando detalles: {e}", exc_info=True)
-        return _html_response(_error_page(str(e))), 500
+        return _html_response(_error_page(sanitize_public_error(e))), 500
 
 
 # ─── API: gastos ─────────────────────────────────────────────────────────────
@@ -707,7 +726,7 @@ def get_expenses():
         expenses = db_manager.get_all_expenses()
         return jsonify({'success': True, 'expenses': expenses, 'count': len(expenses)})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': sanitize_public_error(e)}), 500
 
 
 @app.route('/api/update-expense', methods=['POST'])
@@ -740,7 +759,7 @@ def get_categories():
         cats = db_manager.get_categories()
         return jsonify({'success': True, 'categories': cats})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': sanitize_public_error(e)}), 500
 
 
 @app.route('/api/get-settings', methods=['GET'])
@@ -748,7 +767,7 @@ def get_settings():
     try:
         return jsonify({'success': True, 'settings': db_manager.get_all_settings()})
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': sanitize_public_error(e)}), 500
 
 
 @app.route('/api/set-setting', methods=['POST'])
@@ -807,7 +826,7 @@ def send_to_telegram():
         )
         success, message = future.result(timeout=20)
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": sanitize_public_error(e)}), 500
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -839,7 +858,7 @@ def bolsa_view():
         return resp
     except Exception as e:
         logger.error(f"Error sirviendo /bolsa: {e}", exc_info=True)
-        return _html_response(_error_page(str(e))), 500
+        return _html_response(_error_page(sanitize_public_error(e))), 500
 
 
 @app.route('/visor/<path:path>')
@@ -866,27 +885,43 @@ def bolsa_health():
             'particle_fluid': os.path.isfile(os.path.join(root_dir, 'src', 'static', 'particle_fluid.js')),
             'visor_import_error': visor_import_error,
             'scan_engine': bool(fetch_stock_data),
+            'recent_errors': application_errors.summary(),
         }
         ok = all([checks['index_html'], checks['app_js'], checks['style_css']])
         
         # Ampliación para Fase 1
-        db_path = os.path.join(root_dir, 'learner.db')
+        db_path = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT', 'learner.db')
         return jsonify({
             'status': 'ok' if ok else 'error', 
-            'version': '1.1.0',
-            'build': 'stable',
+            'version': '3.0.1',
+            'build': 'error-hardening',
             'db_exists': os.path.exists(db_path),
-            'provider': 'yfinance',
+            'provider': 'yahoo_chart_v8',
             'checks': checks
         }), (200 if ok else 503)
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': sanitize_public_error(e)}), 500
+
+
+@app.route('/api/bolsa/client-errors', methods=['GET', 'POST'])
+def bolsa_client_errors():
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        item = application_errors.record({
+            'message': data.get('message'), 'component': data.get('component', 'bolsa-ui'),
+            'source': data.get('source'), 'line': data.get('line'),
+            'correlation_id': getattr(g, 'correlation_id', ''),
+        })
+        logger.warning("Error cliente clasificado [%s]: %s", item['category'], item['message'])
+        return jsonify({'status': 'recorded', 'error': item}), 202
+    return jsonify({'status': 'ok', 'errors': application_errors.summary(),
+                    'categories': ERROR_CATEGORIES})
 
 @app.route('/api/bolsa/readiness', methods=['GET'])
 def bolsa_readiness():
     # Solo 200 cuando API, base y UI mínima puedan servir tráfico
     try:
-        db_path = os.path.join(root_dir, 'learner.db')
+        db_path = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT', 'learner.db')
         if not os.path.exists(db_path):
             return jsonify({'status': 'error', 'message': 'Base de datos no encontrada'}), 503
         
@@ -899,7 +934,7 @@ def bolsa_readiness():
             
         return jsonify({'status': 'ready'}), 200
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': sanitize_public_error(e)}), 500
 
 
 @app.route('/api/scan/start', methods=['POST'])
@@ -1067,7 +1102,7 @@ def learner_feedback():
             data['user_id'], data['user_role'], data.get('note', '')
         )
     except (ValueError, KeyError) as exc:
-        return jsonify({'status': 'error', 'message': str(exc)}), 400
+        return jsonify({'status': 'error', 'message': sanitize_public_error(exc)}), 400
     return jsonify({'status': 'ok', 'message': 'Feedback registrado', 'feedback_id': feedback_id})
 
 
@@ -1088,7 +1123,7 @@ def ml_retrain():
         return jsonify({'status': 'ok', 'metrics': metrics})
     except Exception as e:
         logger.error(f"Error reentrenando modelo ML: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': sanitize_public_error(e)}), 500
 
 
 @app.route('/api/cache/stats', methods=['GET'])
@@ -1121,7 +1156,7 @@ def calc_risk():
         atr_multiplier = float(data.get('atr_multiplier', 2))
         return jsonify(calculate_position_size(capital, price, atr, risk_pct, atr_multiplier))
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': sanitize_public_error(e)}), 400
 
 
 @app.route('/api/portfolio/config', methods=['GET', 'POST'])
@@ -1181,7 +1216,7 @@ def analyze_portfolio_api():
         return jsonify({'status': 'ok', 'results': results})
     except Exception as e:
         logger.error(f"Error analizando portafolio: {e}", exc_info=True)
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': sanitize_public_error(e)}), 500
 
 @app.route('/api/dashboard-updates')
 def dashboard_updates():
@@ -1205,7 +1240,7 @@ def dashboard_updates():
         }})
     except Exception as e:
         logger.error(f"Error en dashboard-updates: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': sanitize_public_error(e)}), 500
 
 
 # ─── Cache de estáticos ──────────────────────────────────────────────────────

@@ -26,1258 +26,269 @@ if (typeof MutationObserver !== 'undefined' && document.body) {
     try { observer.observe(document.body, { childList: true, subtree: true }); } catch (e) { /* noop */ }
 }
 
-const API_URL = "/api";
-
-function escapeHtml(value) {
-    const node = document.createElement('div');
-    node.textContent = String(value ?? '');
-    return node.innerHTML;
-}
-
-// Elements
-const btnStart = document.getElementById("btn-start");
-const btnStop = document.getElementById("btn-stop");
-const btnClearCache = document.getElementById("btn-clear-cache");
-const btnClearTicker = document.getElementById("btn-clear-ticker");
-const sourceSelect = document.getElementById("source-select");
-const workersSlider = document.getElementById("workers-slider");
-const workersVal = document.getElementById("workers-val");
-const useCacheChk = document.getElementById("use-cache");
-const sourceSubtitle = document.getElementById("source-subtitle");
-const marketStatus = document.getElementById("market-status");
-const cacheStats = document.getElementById("cache-stats");
-const progressBar = document.getElementById("progress-bar");
-const progressText = document.getElementById("progress-text");
-
-const tabBtns = document.querySelectorAll(".tab-btn[data-tab]");
-const tabContents = document.querySelectorAll(".tab-content");
-const btnPortfolioShortcut = document.getElementById("btn-portfolio-shortcut");
-
-const volatilityTableBody = document.querySelector("#volatility-table tbody");
-const gemsTableBody = document.querySelector("#gems-table tbody");
-const riskOutput = document.getElementById("risk-output");
-const detailsContent = document.getElementById("details-content");
-const autoScanChk = document.getElementById("auto-scan");
-
-const tslaMonitor = document.getElementById("tsla-monitor");
-const tslaContent = document.getElementById("tsla-content");
-
-// Null-safe stubs for removed general-tab elements
-const filterViability = { value: 'TODAS', addEventListener: () => {} };
-const searchTicker = { value: '', addEventListener: () => {} };
-
-// State
-let isScanning = false;
-let statusInterval = null;
-let autoScanInterval = null;
-let allResults = [];
-let selectedTickerData = null;
-
-function hasNumericValue(value) {
-    return value !== null && value !== undefined && Number.isFinite(Number(value));
-}
-
-function quoteStatus(row) {
-    const quote = row.Quote || row.quote;
-    if (!quote || !quote.market_timestamp) {
-        return { label: 'Datos sin timestamp', cssClass: 'stale', detail: 'Proveedor no identificado' };
-    }
-    const timestamp = new Date(quote.market_timestamp);
-    const formatted = Number.isNaN(timestamp.getTime()) ? quote.market_timestamp : timestamp.toLocaleString();
-    const quality = hasNumericValue(quote.quality_score) ? `${(Number(quote.quality_score) * 100).toFixed(0)}%` : 'N/D';
-    return {
-        label: quote.is_stale ? 'Datos vencidos' : 'Datos vigentes',
-        cssClass: quote.is_stale ? 'stale' : 'fresh',
-        detail: `${quote.provider || 'proveedor N/D'} Â· ${formatted} Â· calidad ${quality}`,
-    };
-}
-
-function showToast(message, type = "info") {
-    const region = document.getElementById("toast-region");
-    if (!region) return;
-    const toast = document.createElement("div");
-    toast.className = `app-toast ${type}`;
-    toast.setAttribute("role", type === "error" ? "alert" : "status");
-    toast.textContent = message;
-    region.appendChild(toast);
-    setTimeout(() => toast.remove(), 4500);
-}
-
-function requestConfirmation(message) {
-    const dialog = document.getElementById("app-confirm-dialog");
-    const messageEl = document.getElementById("app-confirm-message");
-    const accept = document.getElementById("app-confirm-accept");
-    const cancel = document.getElementById("app-confirm-cancel");
-    if (!dialog || !messageEl || !accept || !cancel || typeof dialog.showModal !== "function") {
-        return Promise.resolve(false);
-    }
-
-    messageEl.textContent = message;
-    dialog.showModal();
-    cancel.focus();
-    return new Promise(resolve => {
-        const finish = value => {
-            accept.removeEventListener("click", onAccept);
-            cancel.removeEventListener("click", onCancel);
-            dialog.removeEventListener("cancel", onCancel);
-            if (dialog.open) dialog.close();
-            resolve(value);
-        };
-        const onAccept = () => finish(true);
-        const onCancel = event => { event.preventDefault(); finish(false); };
-        accept.addEventListener("click", onAccept);
-        cancel.addEventListener("click", onCancel);
-        dialog.addEventListener("cancel", onCancel);
-    });
-}
-
-function activateTab(tabId, button) {
-    const panel = document.getElementById(tabId);
-    if (!panel || !button) {
-        showToast("La secciÃ³n solicitada no estÃ¡ disponible.", "error");
-        return false;
-    }
-
-    tabBtns.forEach(item => {
-        const active = item === button;
-        item.classList.toggle("active", active);
-        item.setAttribute("aria-selected", String(active));
-        item.tabIndex = active ? 0 : -1;
-    });
-    tabContents.forEach(content => content.classList.toggle("active", content === panel));
-    return true;
-}
-
-// Initialization
-document.addEventListener("DOMContentLoaded", async () => {
-    // 1. Actualizar estadÃ­sticas iniciales
-    updateCacheStats();
-    
-    // 2. Traer inmediatamente los resultados del servidor
-    await fetchResults();
-
-    // 3. Cargar estado de escaneo
-    await checkScanStatus();
-    
-    // 4. Si el auto-scan estÃ¡ activo en la UI pero el servidor estÃ¡ libre y sin datos, sugerir inicio
-    if (autoScanChk && autoScanChk.checked && !isScanning && allResults.length === 0) {
-        console.log("Auto-Scan activo y sin datos: Iniciando escaneo inicial...");
-        startScan();
-    }
-    
-    // 4. Cargar portafolio desde la API (sincronizado con el bot)
-    try {
-        const res = await fetch(`${API_URL}/portfolio/config`);
-        const data = await res.json();
-        if (!res.ok || data.status === 'error') {
-            throw new Error(data.message || `HTTP ${res.status}`);
-        }
-    } catch (e) {
-        console.error("Error cargando portafolio:", e);
-    }
-
-    // 5. Cargar y analizar portafolio automÃ¡ticamente al iniciar
-    analyzePortfolio();
-});
-
-// Event Listeners (v2.7.1: guards null â€” un elemento faltante tumbaba todo el visor en blanco)
-if (workersSlider && workersVal) workersSlider.addEventListener("input", (e) => { workersVal.textContent = e.target.value; });
-if (sourceSelect && sourceSubtitle) sourceSelect.addEventListener("change", (e) => {
-    try {
-        const text = e.target.options[e.target.selectedIndex].text;
-        sourceSubtitle.textContent = `${text} (OPTIMIZADO)`;
-    } catch (err) { /* noop */ }
-});
-
-if (btnStart) btnStart.addEventListener("click", startScan);
-if (btnStop) btnStop.addEventListener("click", stopScan);
-if (btnClearCache) btnClearCache.addEventListener("click", () => clearCache("data"));
-if (btnClearTicker) btnClearTicker.addEventListener("click", () => clearCache("tickers"));
-
-// Portfolio elements
-const btnAddPortfolio = document.getElementById("btn-add-portfolio");
-const portTicker = document.getElementById("port-ticker");
-const portQty = document.getElementById("port-qty");
-const portPrice = document.getElementById("port-price");
-const portfolioTbody = document.getElementById("portfolio-tbody");
-
-if (btnAddPortfolio) {
-    btnAddPortfolio.addEventListener("click", handleAddPortfolio);
-}
-
-// NavegaciÃ³n accesible y carga diferida de paneles.
-tabBtns.forEach(btn => {
-    btn.addEventListener("click", async () => {
-        const tabId = btn.dataset.tab;
-        if (!activateTab(tabId, btn)) return;
-        if (tabId === 'ai-tab') {
-            await Promise.all([loadLearnerStats(), loadLearnerHistory(), loadTransparencyStatus()]);
-        }
-    });
-    btn.addEventListener("keydown", event => {
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-        event.preventDefault();
-        const buttons = Array.from(tabBtns);
-        const current = buttons.indexOf(btn);
-        let next = current;
-        if (event.key === 'ArrowLeft') next = (current - 1 + buttons.length) % buttons.length;
-        if (event.key === 'ArrowRight') next = (current + 1) % buttons.length;
-        if (event.key === 'Home') next = 0;
-        if (event.key === 'End') next = buttons.length - 1;
-        buttons[next].focus();
-        buttons[next].click();
-    });
-});
-
-if (btnPortfolioShortcut) btnPortfolioShortcut.addEventListener("click", scrollToPortfolio);
-
-const btnRefreshAi = document.getElementById("btn-refresh-ai");
-if (btnRefreshAi) {
-    btnRefreshAi.addEventListener("click", () => {
-        loadLearnerStats();
-        loadLearnerHistory();
-        loadTransparencyStatus();
-    });
-}
-
-const btnFeedbackBad = document.getElementById("btn-feedback-bad");
-const btnFeedbackGood = document.getElementById("btn-feedback-good");
-
-async function submitStructuredFeedback(feedback) {
-    if (!selectedTickerData) return;
-    const ticker = selectedTickerData.Ticker;
-    const predictionId = selectedTickerData.Prediction_IDs?.['5'];
-    const reason = document.getElementById('feedback-reason')?.value || 'other';
-    if (!predictionId) {
-        showToast("Esta observaciÃ³n heredada no tiene una predicciÃ³n auditable.", "error");
-        return;
-    }
-    const label = feedback === 'positive' ? 'Ãºtil' : 'no Ãºtil';
-    if (!await requestConfirmation(`Â¿Registrar la recomendaciÃ³n de ${ticker} como ${label}?`)) return;
-    try {
-        const response = await fetch(`${API_URL}/learner/feedback`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                prediction_id: predictionId,
-                feedback,
-                reason,
-                user_id: 'local_user',
-                user_role: 'owner'
-            })
-        });
-        const data = await response.json();
-        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
-        showToast(`Feedback auditable registrado para ${ticker}.`, "success");
-        [btnFeedbackBad, btnFeedbackGood].forEach(button => {
-            if (button) button.disabled = true;
-        });
-    } catch (e) {
-        console.error("Error enviando feedback", e);
-        showToast("No fue posible registrar el feedback.", "error");
-    }
-}
-
-if (btnFeedbackBad) btnFeedbackBad.addEventListener("click", () => submitStructuredFeedback('negative'));
-if (btnFeedbackGood) btnFeedbackGood.addEventListener("click", () => submitStructuredFeedback('positive'));
-
-async function loadLearnerStats() {
-    const accuracyEl = document.getElementById('ai-accuracy');
-    const avgEl = document.getElementById('ai-avg-change');
-    const verifiedEl = document.getElementById('ai-verified');
-    const adjustmentsEl = document.getElementById('ai-adjustments');
-    [accuracyEl, avgEl, verifiedEl, adjustmentsEl].forEach(el => { if (el) el.textContent = 'â€¦'; });
-    try {
-        const res = await fetch(`${API_URL}/learner/stats`);
-        const data = await res.json();
-        if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
-        if (data.status === 'ok') {
-            const hasVerified = Number(data.stats.verified) > 0;
-            accuracyEl.textContent = hasVerified && data.stats.accuracy_pct !== null ? `${data.stats.accuracy_pct}%` : 'N/D';
-            
-            const avg = data.stats.avg_change_1d;
-            avgEl.textContent = hasVerified ? `${avg > 0 ? '+' : ''}${avg}%` : 'N/D';
-            avgEl.style.color = avg > 0 ? 'var(--success-color)' : (avg < 0 ? 'var(--danger-color)' : 'white');
-            
-            verifiedEl.textContent = data.stats.verified;
-            adjustmentsEl.textContent = data.stats.total_adjustments;
-        }
-
-        // Consultar estado de Machine Learning
-        const mlRes = await fetch(`${API_URL}/ml/status`);
-        const mlData = await mlRes.json();
-        if (mlData.status === 'ok' && mlData.ml && mlData.ml.trained) {
-            const metrics = mlData.ml.metrics;
-            const mlAccEl = document.getElementById('ai-accuracy');
-            if (mlAccEl && metrics.full_precision) {
-                mlAccEl.title = `Modelo ML GradientBoosting: ${metrics.samples_total} muestras | AUC: ${metrics.auc_score}%`;
-            }
-        } else if (mlData.status === 'ok' && mlData.ml) {
-            accuracyEl.title = `Modelo no aprobado para producciÃ³n: ${mlData.ml.degraded_reason || 'sin validaciÃ³n temporal'}. Se usa Ãºnicamente el motor heurÃ­stico.`;
-        }
-    } catch (e) {
-        console.error("Error loading learner stats", e);
-        [accuracyEl, avgEl, verifiedEl, adjustmentsEl].forEach(el => { if (el) el.textContent = 'Error'; });
-        showToast("No fue posible cargar las mÃ©tricas de aprendizaje.", "error");
-    }
-}
-
-async function loadTransparencyStatus() {
-    const panel = document.getElementById('ai-transparency-panel');
-    if (!panel) return;
-    try {
-        const response = await fetch(`${API_URL}/bolsa/transparency`);
-        const data = await response.json();
-        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
-        const ai = data.adaptive_ai || {};
-        const paper = data.paper_trading || {};
-        const modules = ai.modules || {};
-        const metrics = paper.metrics || {};
-        panel.innerHTML = `
-            <h3 id="ai-transparency-title">Estado operativo y evidencia</h3>
-            <div class="transparency-grid">
-                <div><strong>OperaciÃ³n</strong><span>${escapeHtml(ai.operational_state || 'N/D')}</span></div>
-                <div><strong>HeurÃ­stica</strong><span>${escapeHtml(modules.heuristic || 'N/D')}</span></div>
-                <div><strong>ML</strong><span>${escapeHtml(modules.ml || 'N/D')}</span></div>
-                <div><strong>Fourier</strong><span>${escapeHtml(modules.fourier || 'N/D')}</span></div>
-                <div><strong>Ãšltimo entrenamiento</strong><span>${escapeHtml(ai.last_training || 'N/D')}</span></div>
-                <div><strong>Predicciones verificadas</strong><span>${escapeHtml(ai.verified_predictions ?? 'N/D')}</span></div>
-                <div><strong>Paper trading</strong><span>${escapeHtml(metrics.market_sessions ?? 0)} sesiones Â· ${escapeHtml(metrics.eligible_signals ?? 0)} seÃ±ales</span></div>
-                <div><strong>Gate</strong><span>${escapeHtml(paper.approval?.decision || 'N/D')}</span></div>
-            </div>
-            <p><strong>RazÃ³n de degradaciÃ³n:</strong> ${escapeHtml(ai.degradation_reason || 'N/D')}</p>
-            <p class="financial-disclaimer">AnÃ¡lisis educativo. No garantiza resultados ni constituye asesorÃ­a financiera.</p>`;
-    } catch (error) {
-        panel.innerHTML = `<h3 id="ai-transparency-title">Estado operativo y evidencia</h3><p class="signal-blocked">No disponible: ${escapeHtml(error.message)}</p>`;
-    }
-}
-
-async function loadLearnerHistory() {
-    const tbody = document.getElementById('ai-history-tbody');
-    if (!tbody) return;
-    
-    tbody.innerHTML = `<tr><td colspan="6"><i data-lucide="loader" class="lucide-spin"></i> Cargando historial...</td></tr>`;
-    try {
-        const form = document.getElementById('ai-history-filters');
-        const query = form ? new URLSearchParams(new FormData(form)).toString() : '';
-        const res = await fetch(`${API_URL}/learner/history${query ? `?${query}` : ''}`);
-        const data = await res.json();
-        if (data.status === 'ok') {
-            tbody.innerHTML = '';
-            if (data.history.length === 0) {
-                tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No hay historial verificado aÃºn.</td></tr>`;
-                return;
-            }
-            
-            data.history.forEach(row => {
-                const tr = document.createElement('tr');
-                const outcome = row.outcome;
-                let evalBadge = "neutro", evalText = "Pendiente";
-                if (outcome === 'COMPRA_EXITOSA' || outcome === 'SALIDA_CORRECTA') {
-                    evalBadge = "alta"; evalText = "ğŸŸ¢ AcertÃ³";
-                } else if (outcome === 'COMPRA_FALLIDA' || outcome === 'SALIDA_INCORRECTA') {
-                    evalBadge = "evitar"; evalText = "ğŸ”´ FallÃ³";
-                } else if (row.status === 'IRRECOVERABLE') {
-                    evalBadge = "evitar"; evalText = "Irrecuperable";
-                } else if (outcome === 'NEUTRAL') {
-                    evalText = "Neutral";
-                }
-                
-                const change = row.change_pct_1d !== null ? `${row.change_pct_1d > 0 ? '+' : ''}${row.change_pct_1d.toFixed(2)}%` : '--';
-                const changeColor = row.change_pct_1d > 0 ? 'var(--success-color)' : (row.change_pct_1d < 0 ? 'var(--danger-color)' : 'white');
-                
-                tr.innerHTML = `
-                    <td>${new Date(row.scan_date).toLocaleString()} Â· ${row.horizon_sessions}s</td>
-                    <td><strong>${row.ticker}</strong></td>
-                    <td>${row.score.toFixed(1)}</td>
-                    <td>$${row.price_at_rec.toFixed(2)}</td>
-                    <td style="color:${changeColor}; font-weight:bold;">${change}</td>
-                    <td><span class="badge ${evalBadge}">${evalText}</span></td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-    } catch (e) {
-        console.error("Error loading learner history", e);
-        tbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color)">Error al cargar historial</td></tr>`;
-    }
-}
-
-const aiHistoryFilters = document.getElementById('ai-history-filters');
-if (aiHistoryFilters) aiHistoryFilters.addEventListener('submit', event => {
-    event.preventDefault();
-    loadLearnerHistory();
-});
-
-filterViability.addEventListener("change", renderTables);
-searchTicker.addEventListener("input", renderTables);
-
-document.querySelectorAll(".risk-inputs input").forEach(input => {
-    input.addEventListener("input", () => {
-        if (selectedTickerData) calculateRisk(selectedTickerData);
-    });
-});
-
-autoScanChk.addEventListener("change", (e) => {
-    // El auto-scan ahora se gestiona principalmente en el servidor
-    // pero permitimos al usuario forzar un inicio si lo desea
-    if(e.target.checked && !isScanning) {
-        startScan();
-    }
-});
-
-// API Calls
-async function updateCacheStats() {
-    try {
-        const res = await fetch(`${API_URL}/cache/stats`);
-        const data = await res.json();
-        const dCache = data.data_cache;
-        cacheStats.innerHTML = `<i data-lucide="zap"></i> CachÃ©: ${dCache.total_tickers} stocks | ${dCache.total_size_mb.toFixed(1)} MB | Listas: ${data.ticker_cache.cached_sources}`;
-    } catch (e) {
-        console.error("Error fetching cache stats", e);
-    }
-}
-
-async function clearCache(target) {
-    if(!await requestConfirmation(`Â¿Limpiar la cachÃ© de ${target}?`)) return;
-    try {
-        const response = await fetch(`${API_URL}/cache/clear`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ target })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        updateCacheStats();
-        showToast("CachÃ© limpiada correctamente.", "success");
-    } catch (e) {
-        console.error("Error clearing cache", e);
-        showToast("No fue posible limpiar la cachÃ©.", "error");
-    }
-}
-
-async function startScan() {
-    try {
-        // sp500_nasdaq = combinar ambas fuentes en el backend
-        let source = sourceSelect.value;
-        if (source === 'sp500_nasdaq') source = 'sp500_nasdaq';
-
-        const res = await fetch(`${API_URL}/scan/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                source: source,
-                max_workers: parseInt(workersSlider.value),
-                use_cache: useCacheChk.checked
-            })
-        });
-        
-        if(res.ok) {
-            btnStart.disabled = true;
-            btnStop.disabled = false;
-            allResults = [];
-            renderTables();
-            isScanning = true;
-            startStatusPolling();
-        }
-    } catch (e) {
-        console.error("Error starting scan", e);
-    }
-}
-
-async function stopScan() {
-    try {
-        await fetch(`${API_URL}/scan/stop`, { method: "POST" });
-    } catch (e) {
-        console.error("Error stopping scan", e);
-    }
-}
-
-async function handleAddPortfolio() {
-    const ticker = portTicker.value.trim().toUpperCase();
-    const qty = parseFloat(portQty.value);
-    const price = parseFloat(portPrice.value);
-    
-    if (!ticker || isNaN(qty) || isNaN(price)) {
-        showToast("Completa todos los campos correctamente.", "error");
-        return;
-    }
-    
-    btnAddPortfolio.disabled = true;
-    try {
-        await fetch(`${API_URL}/portfolio/update`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ticker, qty, price })
-        });
-        portTicker.value = "";
-        portPrice.value = "";
-        analyzePortfolio();
-    } catch (e) {
-        console.error("Error adding to portfolio", e);
-    }
-    btnAddPortfolio.disabled = false;
-}
-
-async function analyzePortfolio() {
-    if (!portfolioTbody) return;
-    portfolioTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 28px; color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin" style="margin-right:8px; color:var(--primary-color)"></i> Analizando Cartera en tiempo real...</td></tr>`;
-    
-    try {
-        const res = await fetch(`${API_URL}/portfolio/analyze`, { method: "POST" });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
-        
-        if (data.status === 'ok') {
-            portfolioTbody.innerHTML = '';
-            const totalCountEl = document.getElementById('port-total-count');
-            const totalPlEl = document.getElementById('port-total-pl');
-
-            if (!data.results || data.results.length === 0) {
-                portfolioTbody.innerHTML = `<tr class="empty-row"><td colspan="6" style="text-align:center; padding: 32px; color:var(--text-muted);">No tienes posiciones registradas. Agrega tus tickers arriba para que el asesor las monitoree en tiempo real.</td></tr>`;
-                if (totalCountEl) totalCountEl.textContent = '0 activos';
-                if (totalPlEl) totalPlEl.textContent = '$0.00 USD';
-                return;
-            }
-
-            if (totalCountEl) totalCountEl.textContent = `${data.results.length} activos`;
-            
-            let totalPlUsd = 0;
-            let totalCostUsd = 0;
-            let hasValidCost = false;
-
-            data.results.forEach(row => {
-                const tr = document.createElement('tr');
-                if (row.error) {
-                    tr.innerHTML = `
-                        <td><strong style="font-size:15px; color:var(--text-primary);">${escapeHtml(row.ticker)}</strong></td>
-                        <td colspan="4" style="color:var(--danger-color); font-weight:600;">${escapeHtml(row.error)}</td>
-                        <td style="text-align:center;">
-                            <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
-                        </td>
-                    `;
-                } else {
-                    let badgeClass = "neutro";
-                    const verdictUpper = String(row.verdict || "").toUpperCase();
-                    if (verdictUpper.includes("COMPRA") || verdictUpper.includes("AUMENTA")) badgeClass = "alta";
-                    else if (verdictUpper.includes("MANTEN") || verdictUpper.includes("MEDIA")) badgeClass = "moderado";
-                    else if (verdictUpper.includes("VENTA") || verdictUpper.includes("EVITAR") || verdictUpper.includes("REDUCIR")) badgeClass = "evitar";
-                    
-                    const plPct = Number(row.pl_pct) || 0;
-                    const plVal = Number(row.pl_val) || 0;
-                    const plMxn = Number(row.pl_mxn) || 0;
-                    const plColor = plPct >= 0 ? "var(--success-color)" : "var(--danger-color)";
-                    const plSign = plPct >= 0 ? "+" : "";
-
-                    if (row.pl_val !== undefined && row.entry_price > 0 && row.qty > 0) {
-                        totalPlUsd += plVal;
-                        totalCostUsd += (Number(row.entry_price) * Number(row.qty));
-                        hasValidCost = true;
-                    }
-
-                    const levFlag = row.is_leveraged ? ' <span class="badge evitar" style="font-size:10px; margin-left:6px; letter-spacing:0.4px;">APALANCADO</span>' : '';
-                    const reasonsList = Array.isArray(row.reasons) ? row.reasons.join(" â€¢ ") : "";
-
-                    tr.innerHTML = `
-                        <td>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <strong style="font-size:16px; letter-spacing:-0.3px; color:var(--text-primary);">${escapeHtml(row.ticker)}</strong>
-                                ${levFlag}
-                            </div>
-                        </td>
-                        <td>
-                            <div style="font-weight:700; color:var(--text-primary); font-size:15px;">${row.qty} <span style="font-size:12px; color:var(--text-secondary); font-weight:500;">acc</span></div>
-                            <small style="color:var(--text-muted); font-size:12px;">@ $${row.entry_price ? Number(row.entry_price).toFixed(2) : '0.00'} USD</small>
-                        </td>
-                        <td>
-                            <div style="font-weight:800; font-size:15px; color:var(--text-primary);">$${row.price ? Number(row.price).toFixed(2) : '0.00'} <small style="font-size:11px; color:var(--text-secondary);">USD</small></div>
-                            <small style="color:var(--text-secondary); font-weight:600;">$${row.price_mxn ? Number(row.price_mxn).toFixed(2) : '0.00'} MXN</small>
-                        </td>
-                        <td>
-                            <div style="display:flex; flex-direction:column; gap:4px; max-width:320px;">
-                                <span class="badge ${badgeClass}" style="width:fit-content; font-size:11px; padding:4px 10px; letter-spacing:0.3px;">${escapeHtml(row.verdict || 'EVALUANDO')}</span>
-                                ${reasonsList ? `<span style="font-size:11px; color:var(--text-secondary); line-height:1.35; white-space:normal;" title="${escapeHtml(reasonsList)}">${escapeHtml(reasonsList)}</span>` : ''}
-                            </div>
-                        </td>
-                        <td style="color: ${plColor}; font-weight: 800; font-size:15px;">
-                            ${plSign}${plPct.toFixed(2)}%
-                            <div style="font-size:12px; font-weight:700; opacity:0.9; margin-top:3px;">
-                                ${plSign}$${plVal.toFixed(2)} USD
-                                ${plMxn ? ` <span style="font-weight:500; opacity:0.8;">(${plSign}$${plMxn.toFixed(2)} MXN)</span>` : ''}
-                            </div>
-                        </td>
-                        <td style="text-align:center;">
-                            <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar ${escapeHtml(row.ticker)} de la cartera" style="padding:8px 12px; border-radius:10px;">
-                                <i class="fa-solid fa-trash-can"></i>
-                            </button>
-                        </td>
-                    `;
-
-                    // Click en fila para ver desglose en panel superior
-                    tr.style.cursor = "pointer";
-                    tr.title = "Haz clic para ver anÃ¡lisis en el panel superior";
-                    tr.addEventListener("click", (e) => {
-                        if (e.target.closest('button')) return;
-                        inspectPortfolioTicker(row);
-                    });
-                }
-                portfolioTbody.appendChild(tr);
-            });
-
-            if (totalPlEl) {
-                if (hasValidCost && totalCostUsd > 0) {
-                    const totalPlPct = (totalPlUsd / totalCostUsd) * 100;
-                    const sign = totalPlUsd >= 0 ? "+" : "";
-                    const color = totalPlUsd >= 0 ? "var(--success-color)" : "var(--danger-color)";
-                    totalPlEl.innerHTML = `<span style="color:${color}; font-weight:800;">${sign}$${totalPlUsd.toFixed(2)} USD (${sign}${totalPlPct.toFixed(2)}%)</span>`;
-                } else {
-                    totalPlEl.innerHTML = `<span style="color:var(--text-primary); font-weight:700;">$${totalPlUsd.toFixed(2)} USD</span>`;
-                }
-            }
-        } else {
-            throw new Error(data.message || 'No se pudo analizar el portafolio');
-        }
-    } catch (e) {
-        console.error("Error analyzing portfolio", e);
-        portfolioTbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color); padding: 24px; text-align:center;">No se pudo cargar el portafolio. ${escapeHtml(e.message || 'Error de conexiÃ³n')}</td></tr>`;
-    }
-}
-
-function scrollToPortfolio() {
-    const el = document.getElementById("portfolio-section");
-    if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        el.classList.add("highlight-pulse");
-        setTimeout(() => el.classList.remove("highlight-pulse"), 1600);
-    }
-}
-window.scrollToPortfolio = scrollToPortfolio;
-
-function inspectPortfolioTicker(row) {
-    const existing = allResults.find(r => r.Ticker === row.ticker);
-    if (existing) {
-        selectTicker(existing, null);
-    } else {
-        selectTicker({
-            Ticker: row.ticker,
-            Price: row.price,
-            Price_MXN: row.price_mxn,
-            Viabilidad: row.verdict || 'Portafolio',
-            Score: 70,
-            ML_Score: 70,
-            ML_Confidence: 'Cartera',
-            Score_Tech: 28,
-            Score_Fund: 27,
-            Score_Liq: 15,
-            RSI: row.rsi,
-            Is_Leveraged: row.is_leveraged,
-            Nota: Array.isArray(row.reasons) ? row.reasons.join(', ') : 'PosiciÃ³n activa en portafolio'
-        }, null);
-    }
-    const details = document.querySelector(".ticker-details");
-    if (details) {
-        details.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-}
-window.inspectPortfolioTicker = inspectPortfolioTicker;
-
-async function removePortfolioItem(ticker) {
-    if (!await requestConfirmation(`Â¿Eliminar ${ticker} del portafolio?`)) return;
-    try {
-        // En server.py creamos una lÃ³gica para borrar o actualizar
-        const response = await fetch(`${API_URL}/portfolio/config`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-                action: 'remove', 
-                ticker: ticker 
-            })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        analyzePortfolio();
-        showToast(`${ticker} se eliminÃ³ del portafolio.`, "success");
-    } catch (e) {
-        console.error("Error removing portfolio item", e);
-        showToast(`No fue posible eliminar ${ticker}.`, "error");
-    }
-}
-
-function startStatusPolling() {
-    if (statusInterval) clearInterval(statusInterval);
-    statusInterval = setInterval(checkScanStatus, 1000);
-}
-
-async function checkScanStatus() {
-    try {
-        const res = await fetch(`${API_URL}/scan/status`);
-        const data = await res.json();
-        
-        if (progressBar) progressBar.style.width = `${(data.progress || 0) * 100}%`;
-        if (progressText) progressText.textContent = data.message || '';
-        
-        if (!data.is_scanning && isScanning) {
-            // Scan just finished
-            isScanning = false;
-            clearInterval(statusInterval);
-            btnStart.disabled = false;
-            btnStop.disabled = true;
-            fetchResults();
-            updateCacheStats();
-        } else if (data.is_scanning) {
-            isScanning = true;
-            btnStart.disabled = true;
-            btnStop.disabled = false;
-            startStatusPolling(); // Asegurar que estamos polleando si estÃ¡ activo
-        } else if (!data.is_scanning && !isScanning && allResults.length === 0) {
-             // Si no hay resultados cargados pero hay disponibles en el servidor, traerlos
-             if (data.results_count > 0) {
-                 await fetchResults();
-             }
-        }
-    } catch (e) {
-        console.error("Error checking status", e);
-    }
-}
-
-async function fetchResults() {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    try {
-        const res = await fetch(`${API_URL}/scan/results`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        const data = await res.json();
-        
-        allResults = data.results || [];
-        updateMarketContext(data.market_context);
-        renderTables();
-    } catch (e) {
-        clearTimeout(timeoutId);
-        console.error("Error fetching results", e);
-        if (e.name === 'AbortError') {
-            const errDiv = document.createElement('div');
-            errDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%, -50%);background:#1f2937;color:#f87171;padding:20px;border-radius:12px;z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,0.5);text-align:center;';
-            errDiv.innerHTML = `<h3><i class="fa-solid fa-triangle-exclamation"></i> Timeout</h3>
-                                <p>Servidor disponible, motor de Bolsa no responde a /api/scan/results en 5s.</p>
-                                <button onclick="location.reload()" class="btn primary-btn" style="margin-top:15px">Reintentar</button>`;
-            document.body.appendChild(errDiv);
-        }
-    }
-}
-
-// UI Rendering
-function updateMarketContext(ctx) {
-    if (!ctx || !ctx.regime) return;
-    const regime = String(ctx.regime);
-    let icon = "globe", colorClass = "neutral";
-    if (regime.includes("ALCISTA")) { icon = "arrow-trend-up"; colorClass = "alcista"; }
-    else if (regime.includes("BAJISTA")) { icon = "arrow-trend-down"; colorClass = "bajista"; }
-
-    if (!marketStatus) return;
-    marketStatus.innerHTML = `
-        <span class="status-indicator ${colorClass}">
-            <i class="fa-solid fa-${icon}"></i> ${regime} | VIX: ${ctx.vix ?? '?'} | SPY vs SMA200: ${ctx.spy_vs_sma200 ?? '?'}%
-        </span>
-    `;
-}
-
-function getBadgeClass(viability) {
-    if (viability === undefined || viability === null) return "evitar";
-    viability = String(viability);
-    if (viability.includes("EXCELENTE")) return "alta";
-    if (viability.includes("BUENA")) return "moderado";
-    if (viability.includes("MODERADA")) return "neutro";
-    return "evitar";
-}
-
-let currentViewMode = 'cards';
-
-function switchViewMode(mode) {
-    currentViewMode = mode;
-    const btnCards = document.getElementById('btn-view-cards');
-    const btnTable = document.getElementById('btn-view-table');
-    const cardsVolContainer = document.getElementById('volatility-cards-container');
-    const tableVolContainer = document.getElementById('volatility-table-container');
-    const cardsGemsContainer = document.getElementById('gems-cards-container');
-    const tableGemsContainer = document.getElementById('gems-table-container');
-
-    if (btnCards) btnCards.classList.toggle('active', mode === 'cards');
-    if (btnTable) btnTable.classList.toggle('active', mode === 'table');
-
-    if (cardsVolContainer && tableVolContainer) {
-        cardsVolContainer.style.display = (mode === 'cards') ? 'grid' : 'none';
-        tableVolContainer.style.display = (mode === 'table') ? 'block' : 'none';
-    }
-    if (cardsGemsContainer && tableGemsContainer) {
-        cardsGemsContainer.style.display = (mode === 'cards') ? 'grid' : 'none';
-        tableGemsContainer.style.display = (mode === 'table') ? 'block' : 'none';
-    }
-
-    renderTables();
-}
-
-function renderGBMCards(container, items) {
-    if (!container) return;
-    container.innerHTML = "";
-    if (!items || items.length === 0) {
-        container.innerHTML = `<div class="placeholder-text" style="grid-column: 1/-1; padding: 40px; text-align: center;">No hay datos para mostrar en este escaneo.</div>`;
-        return;
-    }
-
-    items.forEach(row => {
-        const card = document.createElement("div");
-        card.className = "gbm-stock-card";
-        card.onclick = () => selectTicker(row, card);
-        
-        const badgeClass = getBadgeClass(row.Viabilidad);
-        const vol = row.Volatility_Percent ? `${row.Volatility_Percent.toFixed(2)}%` : '0%';
-        const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
-        const hasAiConfidence = row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence);
-        const aiConf = hasAiConfidence ? `${Number(row.AI_Confidence).toFixed(0)}%` : 'N/D';
-        const aiConfClass = !hasAiConfidence ? 'neutro' : (row.AI_Confidence > 75) ? 'alta' : (row.AI_Confidence > 50) ? 'media' : 'baja';
-        const dataStatus = quoteStatus(row);
-
-        card.innerHTML = `
-            <div class="gbm-card-header">
-                <div>
-                    <div class="gbm-ticker">${row.Ticker}${levWarning}</div>
-                    <div class="gbm-company">${row.Nombre || row.Category || 'AcciÃ³n / Asset'}</div>
-                </div>
-                <div class="gbm-price-block">
-                    <div class="gbm-price">$${row.Price.toFixed(2)}</div>
-                    <div class="gbm-change ${(row.Volatility_Percent || 0) >= 0 ? 'pos' : 'neg'}">
-                        ${(row.Volatility_Percent || 0) >= 0 ? 'â–²' : 'â–¼'} ${vol}
-                    </div>
-                </div>
-            </div>
-
-            <div class="gbm-card-metrics">
-                <div class="gbm-metric-item">
-                    <span>Viabilidad</span>
-                    <span><span class="badge ${badgeClass}">${row.Viabilidad}</span></span>
-                </div>
-                <div class="gbm-metric-item">
-                    <span>Confianza IA</span>
-                    <span><span class="ml-confidence-pill ${aiConfClass}">${aiConf}</span></span>
-                </div>
-                <div class="gbm-metric-item">
-                    <span>RSI</span>
-                    <span>${row.RSI || 'N/A'}</span>
-                </div>
-                <div class="gbm-metric-item">
-                    <span>ATR (MXN)</span>
-                    <span>$${row.ATR_MXN?.toFixed(2) || '0'}</span>
-                </div>
-            </div>
-
-            <div style="font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 4px; border-top: 1px solid var(--glass-border);">
-                <i class="fa-solid fa-circle-info" style="color: #0052FF;"></i> ${row.Nota || 'Sugerencia de entrada IA'}
-            </div>
-            <div class="data-freshness ${dataStatus.cssClass}" title="${escapeHtml(dataStatus.detail)}">
-                ${dataStatus.label} Â· ${escapeHtml(dataStatus.detail)}
-            </div>
-        `;
-
-        container.appendChild(card);
-    });
-}
-
-function renderTables() {
-    // v2.7.1: si faltan los tbody (HTML parcial), no tumbar el visor
-    if (!volatilityTableBody || !gemsTableBody) return;
-    const filter = filterViability.value;
-    const search = searchTicker.value.toUpperCase();
-    
-    let filtered = allResults;
-    if (filter !== "TODAS") {
-        filtered = filtered.filter(r => r.Viabilidad === filter);
-    }
-    if (search) {
-        filtered = filtered.filter(r => r.Ticker.toUpperCase().includes(search));
-    }
-    
-
-    // Volatility Table (Sorted by Viability then Volatility)
-    volatilityTableBody.innerHTML = "";
-    
-    const viabilityPriority = {
-        "ğŸŸ¢ EXCELENTE": 100,
-        "ğŸŸ¡ BUENA": 80,
-        "ğŸŸ  MODERADA": 50,
-        "ğŸ”´ EVITAR": 0,
-        "TODAS": 0
-    };
-
-    const volSorted = [...allResults].sort((a,b) => {
-        const pA = viabilityPriority[a.Viabilidad] || 0;
-        const pB = viabilityPriority[b.Viabilidad] || 0;
-        if (pA !== pB) return pB - pA;
-        return (b.Volatility_Percent || 0) - (a.Volatility_Percent || 0);
-    }).slice(0, 100);
-    
-    // Render GBM Cards
-    renderGBMCards(document.getElementById('volatility-cards-container'), volSorted);
-
-    // Alertas CrÃ­ticas (TSLA)
-    updateTslaMonitor();
-    if (volSorted.length === 0) {
-        volatilityTableBody.innerHTML = `<tr class="empty-row"><td colspan="7">No hay datos que mostrar.</td></tr>`;
-    } else {
-        volSorted.forEach(row => {
-            const tr = document.createElement("tr");
-            tr.onclick = () => selectTicker(row, tr);
-            
-            const badgeClass = getBadgeClass(row.Viabilidad);
-            const vol = row.Volatility_Percent ? `${row.Volatility_Percent.toFixed(2)}%` : '0%';
-            
-            const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
-            tr.innerHTML = `
-                <td><strong>${row.Ticker}${levWarning}</strong></td>
-                <td>$${(row.Price || 0).toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
-                <td style="color: var(--warning-color); font-weight: bold;">${vol}</td>
-                <td><span class="badge ${badgeClass}">${row.Viabilidad}</span></td>
-                <td>$${row.ATR_MXN?.toFixed(2) || '0'} MXN</td>
-                <td>${row.RSI}</td>
-                <td>
-                    ${row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence) ? `<span style="font-size:10px;color:var(--accent-color)">[HistÃ³rico:${Number(row.AI_Confidence).toFixed(0)}% Â· n=${row.AI_Sample_Size || 0}]</span> ` : '<span style="font-size:10px;color:var(--text-secondary)">[HistÃ³rico: N/D]</span> '}
-                    <span style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; display:inline-block; vertical-align:middle;">${row.Nota || ''}</span>
-                </td>
-            `;
-            volatilityTableBody.appendChild(tr);
-        });
-    }
-
-    // Gems Table (Breakout Hunters)
-    gemsTableBody.innerHTML = "";
-    console.log("Total de resultados para filtrar gemas:", allResults.length);
-    // Filter for gems: Vol_Ratio > 1.1, MACD bullish, Cap < 100B, AND RSI between 30 and 65 (Not overbought)
-    // NOTE: Leveraged ETFs (SOXS, SOXL, TQQQ, etc.) are EXCLUDED because their
-    // structural decay makes technical analysis unreliable for long positions.
-    const gems = [...allResults].filter(r => {
-        if (r.Is_Leveraged) return false; // NUNCA recomendar apalancados como gemas
-        const volRatio = r.Vol_Ratio || 0;
-        const macdSignal = r.MACD_Signal || r.MACD; // Fallback si no estÃ¡ en cachÃ©
-        const macdHist = r.MACD_Hist || 0;
-        const marketCap = r.Market_Cap || 0;
-        
-        const isGem = (volRatio >= 1.1) && 
-               (r.MACD > macdSignal || macdHist > 0 || r.MACD > 0) &&
-               (r.RSI >= 30 && r.RSI < 68) &&
-               (marketCap < 200000000000);
-               
-        return isGem;
-    }).sort((a,b) => (b.Vol_Ratio || 0) - (a.Vol_Ratio || 0)).slice(0, 50);
-    
-    console.log("Gemas encontradas:", gems.length);
-    renderGBMCards(document.getElementById('gems-cards-container'), gems);
-    
-    if (gems.length === 0) {
-        gemsTableBody.innerHTML = `<tr class="empty-row"><td colspan="7">No se encontraron gemas en esta bÃºsqueda.</td></tr>`;
-    } else {
-        gems.forEach(row => {
-            const tr = document.createElement("tr");
-            tr.onclick = () => selectTicker(row, tr);
-            
-            const capStr = (row.Market_Cap / 1000000000).toFixed(1) + 'B';
-            
-            let potClass = "neutro";
-            if (row.Vol_Ratio > 2.0) potClass = "alta";
-            else if (row.Vol_Ratio > 1.5) potClass = "moderado";
-            
-            const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
-            tr.innerHTML = `
-                <td><strong>${row.Ticker}${levWarning}</strong></td>
-                <td>$${(row.Price || 0).toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
-                <td>$${capStr}</td>
-                <td style="color: var(--accent-color); font-weight: bold;">${row.Vol_Ratio || 0}x</td>
-                <td>${(row.MACD || 0).toFixed(2)}</td>
-                <td>${row.RSI || 'N/A'}</td>
-                <td><span class="badge ${potClass}">Breakout Setup</span></td>
-            `;
-            gemsTableBody.appendChild(tr);
-        });
-    }
-}
-
-function selectTicker(row, trElement) {
-    // Highlight row
-    document.querySelectorAll(".data-table tbody tr").forEach(tr => tr.classList.remove("selected"));
-    trElement.classList.add("selected");
-    
-    selectedTickerData = row;
-    
-    // Update Details Panel
-    const badgeClass = getBadgeClass(row.Viabilidad);
-    
-    const dataStatus = quoteStatus(row);
-    const fundamentalsAvailable = row.Fundamentals_Available === true;
-    let detailsHTML = `
-        <div class="detail-section">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <h3 style="margin:0; border:none; font-size:18px; color:white;">${row.Ticker}</h3>
-                <span class="badge ${badgeClass}">${row.Viabilidad}</span>
-            </div>
-            ${row.Is_Leveraged ? '<div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#ef4444;"><strong>ADVERTENCIA:</strong> ETF apalancado. El analisis tecnico clasico NO es aplicable. Estos instrumentos tienen decaimiento estructural por diseno y NO son para hold.</div>' : ''}
-            <div class="detail-grid">
-                <div class="detail-item"><span class="label">Precio USD</span><span class="val">$${(row.Price || 0).toFixed(2)}</span></div>
-                <div class="detail-item"><span class="label">Precio MXN</span><span class="val" style="color:var(--success-color)">$${row.Price_MXN?.toFixed(2) || 'N/A'}</span></div>
-                <div class="detail-item"><span class="label">Score HeurÃ­stico</span><span class="val" style="color:var(--primary-color)">${row.Score || 0}/100</span></div>
-                <div class="detail-item"><span class="label">Score ML</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Source === 'validated_ml_model' && hasNumericValue(row.ML_Score) ? `${Number(row.ML_Score).toFixed(1)}/100 <small style="font-size:10px;opacity:0.8;">(${escapeHtml(row.ML_Confidence || 'ML')})</small>` : `N/D <small style="font-size:10px;opacity:0.8;">(solo heurÃ­stica${row.ML_Degraded_Reason ? ': '+escapeHtml(row.ML_Degraded_Reason) : ''})</small>`}</span></div>
-            </div>
-        </div>
-
-        <div class="detail-section data-contract ${dataStatus.cssClass}">
-            <h3>Calidad y frescura</h3>
-            <p><strong>${dataStatus.label}</strong></p>
-            <p>${escapeHtml(dataStatus.detail)}</p>
-            ${row.Signal_Eligible === false || row.signal_eligible === false ? '<p class="signal-blocked">SIN SEÃ‘AL: datos vencidos o calidad insuficiente.</p>' : ''}
-        </div>
-        
-        <div class="detail-section">
-            <h3>Desglose de Score</h3>
-            <div class="detail-grid">
-                <div class="detail-item"><span class="label">TÃ©cnico</span><span class="val">${hasNumericValue(row.Score_Tech) ? `${row.Score_Tech}/40` : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">Fundamental</span><span class="val">${fundamentalsAvailable && hasNumericValue(row.Score_Fund) ? `${row.Score_Fund}/40` : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">Liquidez</span><span class="val">${hasNumericValue(row.Score_Liq) ? `${row.Score_Liq}/20` : 'N/D'}</span></div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <h3>Indicadores TÃ©cnicos</h3>
-            <div class="detail-grid">
-                <div class="detail-item"><span class="label">RSI</span><span class="val">${hasNumericValue(row.RSI) ? row.RSI : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">MACD / seÃ±al / hist.</span><span class="val">${hasNumericValue(row.MACD) && hasNumericValue(row.MACD_Signal) && hasNumericValue(row.MACD_Hist) ? `${Number(row.MACD).toFixed(2)} / ${Number(row.MACD_Signal).toFixed(2)} / ${Number(row.MACD_Hist).toFixed(2)}` : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">MA100</span><span class="val">${hasNumericValue(row.MA100) ? '$'+row.MA100 : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">MA200</span><span class="val">${hasNumericValue(row.MA200) ? '$'+row.MA200 : 'N/D'}</span></div>
-            </div>
-        </div>
-
-        <div class="detail-section">
-            <h3>Motor heurÃ­stico ${escapeHtml(row.Heuristic_Version || 'sin versiÃ³n')}</h3>
-            <p><strong>Estado:</strong> ${escapeHtml(row.Signal_State || 'SIN SEÃ‘AL')}</p>
-            <p><strong>Horizontes:</strong> ${Object.entries(row.Horizon_Scores || {}).map(([name, item]) => `${escapeHtml(name)} ${escapeHtml(item.sessions)}: ${escapeHtml(item.state)} (${Number(item.score).toFixed(2)})`).join(' Â· ') || 'N/D'}</p>
-            <p><strong>Contribuciones:</strong> ${Object.entries(row.Score_Contributions || {}).map(([name, value]) => `${escapeHtml(name)} ${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)}`).join(' Â· ') || 'N/D'}</p>
-            <p><strong>Datos faltantes:</strong> ${row.Heuristic_Version ? ((row.Missing_Indicators || []).map(escapeHtml).join(', ') || 'ninguno') : 'no evaluado (resultado heredado)'}</p>
-            ${(row.Signal_Restrictions || []).length ? `<p class="signal-blocked"><strong>Restricciones:</strong> ${row.Signal_Restrictions.map(escapeHtml).join(' Â· ')}</p>` : ''}
-        </div>
-
-        ${row.Fusion_Explanation ? `
-        <div class="detail-section" style="border:1px solid var(--primary-color);border-radius:8px;padding:10px;">
-            <h3>Veredicto fusionado ${escapeHtml(row.Fusion_Version || '')}</h3>
-            <p><strong>A favor:</strong> ${(row.Fusion_Explanation.factors_for || []).map(escapeHtml).join(' Â· ')}</p>
-            <p><strong>En contra:</strong> ${(row.Fusion_Explanation.factors_against || []).map(escapeHtml).join(' Â· ')}</p>
-            <p><strong>InvalidaciÃ³n:</strong> ${(row.Fusion_Explanation.invalidation_triggers || []).map(escapeHtml).join(' Â· ')}</p>
-            ${row.Risk_Plan ? `<p><strong>Riesgo:</strong> ${row.Risk_Plan.position_size_shares} acciones Â· stop $${Number(row.Risk_Plan.stop_price).toFixed(2)} Â· pÃ©rdida mÃ¡xima $${Number(row.Risk_Plan.maximum_loss).toFixed(2)} Â· horizonte ${escapeHtml(row.Risk_Plan.horizon)}</p>` : ''}
-        </div>` : ''}
-
-        <div class="detail-section signal-transparency" aria-label="Transparencia de la seÃ±al">
-            <h3>QuÃ© sabe el sistema y quÃ© no</h3>
-            <p><strong>Horizonte:</strong> ${escapeHtml(row.Risk_Plan?.horizon || 'swing 5-20 sesiones')} Â· <strong>Frescura:</strong> ${escapeHtml(row.Quote?.freshness_seconds ?? 'N/D')} s Â· <strong>Proveedor:</strong> ${escapeHtml(row.Quote?.provider || 'N/D')}</p>
-            <p><strong>Probabilidad ML calibrada:</strong> ${hasNumericValue(row.Calibrated_Probability) ? `${(Number(row.Calibrated_Probability) * 100).toFixed(1)}%` : 'N/D â€” modelo no aprobado o sin calibraciÃ³n'}</p>
-            <p><strong>HeurÃ­stica:</strong> ${hasNumericValue(row.Score) ? Number(row.Score).toFixed(2) : 'N/D'} Â· <strong>Fourier:</strong> ${row.Spectral_Validated ? escapeHtml(row.Spectral_Score) : 'experimental, no usado en el veredicto'}</p>
-            <p><strong>Calidad de datos:</strong> ${hasNumericValue(row.Data_Quality) ? `${(Number(row.Data_Quality) * 100).toFixed(1)}%` : 'N/D'} Â· <strong>Incertidumbre:</strong> ${row.Data_Quality < .95 ? 'alta' : (hasNumericValue(row.Calibrated_Probability) ? 'cuantificada' : 'no cuantificada')}</p>
-            <p><strong>Versiones:</strong> reglas ${escapeHtml(row.Fusion_Version || 'N/D')} Â· modelo ${escapeHtml(row.Model_Version || 'N/D')}</p>
-            <p class="financial-disclaimer">No garantiza resultados ni constituye asesorÃ­a financiera.</p>
-        </div>
-        
-        <div class="detail-section">
-            <h3>Volatilidad y Fundamentales</h3>
-            <div class="detail-grid">
-                <div class="detail-item"><span class="label">ATR USD</span><span class="val">${hasNumericValue(row.ATR) ? '$'+Number(row.ATR).toFixed(2) : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">ATR MXN</span><span class="val">${hasNumericValue(row.ATR_MXN) ? '$'+Number(row.ATR_MXN).toFixed(2) : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">Vol %</span><span class="val">${hasNumericValue(row.Volatility_Percent) ? Number(row.Volatility_Percent).toFixed(2)+'%' : 'N/D'}</span></div>
-                <div class="detail-item"><span class="label">Beta</span><span class="val">${fundamentalsAvailable && hasNumericValue(row.Beta) ? row.Beta : 'N/D'}</span></div>
-            </div>
-        </div>
-        
-        <div class="detail-section">
-            <h3>Notas</h3>
-            <p style="color: var(--warning-color); font-size:13px;">${row.Nota || 'Sin notas'}</p>
-        </div>
-        
-        ${row.ML_Breakdown && Object.keys(row.ML_Breakdown).length > 0 ? `
-        <div class="detail-section" style="border: 1px solid var(--accent-color); padding: 10px; border-radius: 8px;">
-            <h3 style="color: var(--accent-color); margin-top: 0;"><i class="fa-solid fa-brain"></i> AnÃ¡lisis ML Predictivo</h3>
-            <div class="detail-grid">
-                ${Object.entries(row.ML_Breakdown).map(([k, v]) => `
-                    <div class="detail-item">
-                        <span class="label">${k}</span>
-                        <span class="val" style="color:${v > 0 ? 'var(--success-color)' : 'var(--danger-color)'}">${v > 0 ? '+' : ''}${v}</span>
-                    </div>
-                `).join('')}
-            </div>
-            <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px; margin-bottom: 0;">* Top features de impacto en la predicciÃ³n actual (Modelo Gradient Boosting).</p>
-        </div>
-        ` : ''}
-    `;
-    
-    if (detailsContent) detailsContent.innerHTML = detailsHTML;
-    
-    // Configurar Confianza IA
-    const aiConfContent = document.getElementById("ai-confidence-content");
-    const feedbackButtons = [
-        document.getElementById("btn-feedback-good"),
-        document.getElementById("btn-feedback-bad")
-    ];
-    if (aiConfContent) {
-        if (row.AI_Confidence_Available === true && hasNumericValue(row.AI_Confidence)) {
-            let color = 'var(--text-secondary)';
-            if (row.AI_Confidence >= 70) color = 'var(--success-color)';
-            else if (row.AI_Confidence <= 30) color = 'var(--danger-color)';
-            
-            let notesHtml = row.AI_Notes && row.AI_Notes.length > 0 ? 
-                `<ul style="margin: 5px 0 0 15px; padding: 0; font-size: 12px; color: var(--text-secondary);">
-                    ${row.AI_Notes.map(n => `<li>${n}</li>`).join('')}
-                </ul>` : '';
-                
-            aiConfContent.innerHTML = `
-                <div style="display:flex; align-items:center; justify-content:space-between;">
-                    <span style="font-size: 14px; font-weight: 500;">Score HistÃ³rico:</span>
-                    <span style="font-size: 18px; font-weight: bold; color: ${color};">${row.AI_Confidence.toFixed(1)}%</span>
-                </div>
-                ${notesHtml}
-            `;
-            
-        } else {
-            aiConfContent.innerHTML = `<p class="placeholder-text">Datos de IA no disponibles aÃºn.</p>`;
-        }
-        const feedbackAvailable = Boolean(row.Prediction_IDs?.['5']);
-        const feedbackControls = document.getElementById('feedback-controls');
-        if (feedbackControls) feedbackControls.style.display = feedbackAvailable ? 'block' : 'none';
-        feedbackButtons.forEach(button => {
-            if (!button) return;
-            button.style.display = feedbackAvailable ? "block" : "none";
-            button.disabled = false;
-        });
-    }
-    
-    // Calculate Risk
-    calculateRisk(row);
-}
-
-async function calculateRisk(row) {
-    try {
-        const capital = document.getElementById("risk-capital").value;
-        const riskPct = document.getElementById("risk-pct").value;
-        const atrMult = document.getElementById("risk-atr").value;
-        
-        const res = await fetch(`${API_URL}/risk/calculate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                capital: capital,
-                price: row.Price,
-                atr: row.ATR || 0,
-                risk_pct: riskPct,
-                atr_multiplier: atrMult
-            })
-        });
-        
-        const data = await res.json();
-        
-        if (data.error) {
-            riskOutput.innerHTML = `<p style="color:var(--danger-color)"><i data-lucide="alert-triangle"></i> ${data.error}</p>`;
-        } else {
-            const levRiskWarn = row.Is_Leveraged ? '<div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#ef4444;"><strong>NO RECOMENDADO:</strong> Los calculos de riesgo no son confiables en ETFs apalancados. Su volatilidad multiplicada y decaimiento diario invalidan los metodos tradicionales.</div>' : '';
-            riskOutput.innerHTML = levRiskWarn + `
-                <div style="margin-bottom:10px; font-weight:600; color:white;">Plan para ${row.Ticker}</div>
-                <div class="risk-calc-grid">
-                    <div class="risk-stat"><span>Acciones</span><span>${data.num_acciones}</span></div>
-                    <div class="risk-stat"><span>InversiÃ³n</span><span>$${data.capital_requerido}</span></div>
-                    <div class="risk-stat stop"><span>Stop-Loss</span><span>$${data.stop_loss}</span></div>
-                    <div class="risk-stat target"><span>Target (2:1)</span><span>$${data.precio_objetivo}</span></div>
-                    <div class="risk-stat"><span>Riesgo MÃ¡x</span><span>$${data.riesgo_maximo}</span></div>
-                    <div class="risk-stat target"><span>Beneficio Pot.</span><span>+$${data.beneficio_potencial}</span></div>
-                </div>
-            `;
-        }
-        
-    } catch (e) {
-        console.error("Error calculating risk", e);
-    }
-}
-
-function updateTslaMonitor() {
-    if (!tslaMonitor || !tslaContent) return;
-    
-    const tslaData = allResults.find(r => r.Ticker === "TSLA");
-    if (!tslaData) {
-        tslaMonitor.style.display = "none";
-        return;
-    }
-    
-    tslaMonitor.style.display = "block";
-    const rsi = tslaData.RSI;
-    let badgeClass = "hold";
-    let actionText = "MANTENER";
-    
-    if (rsi < 35) {
-        badgeClass = "buy"; actionText = "ğŸŸ¢ COMPRA / ENTRADA";
-    } else if (rsi > 65) {
-        badgeClass = "sell"; actionText = "ğŸ›‘ VENTA / SALIDA";
-    }
-    
-    const reasons = [];
-    if (rsi < 35) reasons.push(`<li><i data-lucide="check"></i> RSI en sobreventa (${rsi})</li>`);
-    if (rsi > 65) reasons.push(`<li><i data-lucide="alert-triangle"></i> RSI en sobrecompra (${rsi})</li>`);
-    if (String(tslaData.Viabilidad || "").includes("EXCELENTE")) reasons.push(`<li><i class="fa-solid fa-star"></i> Viabilidad Excelente detectada</li>`);
-    
-    tslaContent.innerHTML = `
-        <div class="tsla-price">$${tslaData.Price.toFixed(2)}</div>
-        <div class="tsla-badge ${badgeClass}">${actionText}</div>
-        <ul class="tsla-reasons">
-            ${reasons.length > 0 ? reasons.join('') : '<li><i class="fa-solid fa-circle-notch"></i> Tendencia estable. Sin seÃ±ales de entrada/salida.</li>'}
-        </ul>
-        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 10px;">
-            Basado en RSI y Viabilidad TÃ©cnica Pro.
-        </div>
-    `;
-}
-
-/* â”€â”€ Global Theme Toggle (v2.7.7) â”€â”€ */
-function toggleTheme() {
-    const html = document.documentElement;
-    const isDark = html.classList.contains('dark') || html.getAttribute('data-theme') === 'dark';
-    const next = isDark ? 'light' : 'dark';
-    
-    if (next === 'dark') {
-        html.classList.add('dark');
-        html.classList.remove('light');
-        html.setAttribute('data-theme', 'dark');
-    } else {
-        html.classList.add('light');
-        html.classList.remove('dark');
-        html.setAttribute('data-theme', 'light');
-    }
-    
-    try { localStorage.setItem('theme', next); } catch (e) {}
-    updateThemeIcon(next);
-    
-    if (window.liquidGL && typeof window.liquidGL.syncWith === 'function') {
-        requestAnimationFrame(() => { try { window.liquidGL.syncWith(); } catch(e){} });
-    }
-}
-
-function updateThemeIcon(theme) {
-    const btn = document.getElementById('theme-btn');
-    if (btn) {
-        btn.innerHTML = theme === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>';
-        btn.setAttribute('title', theme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro');
-        if (window.lucide && typeof lucide.createIcons === 'function') {
-            try { lucide.createIcons(); } catch(e) {}
-        }
-    }
-}
-
-(function() {
-    const savedTheme = (function() {
-        try { return localStorage.getItem('theme') || 'dark'; } catch(e) { return 'dark'; }
-    })();
-    document.documentElement.classList.remove('light', 'dark');
-    document.documentElement.classList.add(savedTheme);
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => updateThemeIcon(savedTheme));
-    } else {
-        updateThemeIcon(savedTheme);
-    }
-})();
+const API_URuÛ8¶‰ËkºwµçK™›Ü‘XXÚ
+›İÈOˆÃBˆÛÛœİØ\™HØİ[Y[˜Ü™X]Q[[Y[
+™]ˆŠNÃBˆØ\™˜Û\ÜÓ˜[YHH™Ø›K\İØÚËXØ\™ÃBˆØ\™›Û˜ÛXÚÈH
+
+HOˆÙ[XİXÚÙ\Š›İËØ\™
+NÃBˆBˆÛÛœİ˜YÙPÛ\ÜÈHÙ]˜YÙPÛ\ÜÊ›İË•šXXš[YY
+NÃBˆÛÛœİ›ÛH›İË•›Û][]WÔ\˜Ù[È	Ü›İË•›Û][]WÔ\˜Ù[Ñš^Y
+Š_IXˆ	Ì	IÎÃBˆÛÛœİ]•Ø\›š[™ÈH›İË’\×Ó]™\˜YÙYÈ	ÏÜ[ˆÛ\ÜÏH˜˜YÙH]š]\ˆˆİ[OH™›Û\Ú^™N\ÛX\™Ú[‹[YÈTSSĞQÏÜÜ[‰Èˆ	ÉÎÃBˆÛÛœİ\ĞZPÛÛ™šY[˜ÙHH›İËRWĞÛÛ™šY[˜ÙWĞ]˜Z[X›HOOHYH	‰ˆ\Ó[Y\šXÕ˜[YJ›İËRWĞÛÛ™šY[˜ÙJNÂˆÛÛœİZPÛÛ™ˆH\ĞZPÛÛ™šY[˜ÙHÈ	Ó[X™\Š›İËRWĞÛÛ™šY[˜ÙJKÑš^Y
+
+_IXˆ	Ó‹Ñ	ÎÂˆÛÛœİZPÛÛ™Û\ÜÈHZ\ĞZPÛÛ™šY[˜ÙHÈ	Û™]]›ÉÈˆ
+›İËRWĞÛÛ™šY[˜ÙHˆÍJHÈ	Ø[IÈˆ
+›İËRWĞÛÛ™šY[˜ÙHˆL
+HÈ	ÛYYXIÈˆ	Ø˜Z˜IÎÂˆÛÛœİ]Tİ]\ÈH][İTİ]\Ê›İÊNÂƒBˆØ\™š[›™\’SHBˆ]ˆÛ\ÜÏH™Ø›KXØ\™ZXY\ˆƒBˆ]ƒBˆ]ˆÛ\ÜÏH™Ø›K]XÚÙ\ˆ‰Ü›İË•XÚÙ\ŸIÛ]•Ø\›š[™ßOÙ]ƒBˆ]ˆÛ\ÜÏH™Ø›KXÛÛ\[H‰Ü›İË“›ÛXœ™H›İËØ]YÛÜH	ĞXØÚpìÛˆÈ\ÜÙ]	ßOÙ]ƒBˆÙ]ƒBˆ]ˆÛ\ÜÏH™Ø›K\šXÙKX›ØÚÈƒBˆ]ˆÛ\ÜÏH™Ø›K\šXÙH‰	Ü›İË”šXÙKÑš^Y
+Š_OÙ]ƒBˆ]ˆÛ\ÜÏH™Ø›KXÚ[™ÙH	Ê›İË•›Û][]WÔ\˜Ù[
+HHÈ	ÜÜÉÈˆ	Û™YÉßHƒBˆ	Ê›İË•›Û][]WÔ\˜Ù[
+HHÈ	ø¥¬‰Èˆ	ø¥¯	ßH	İ›ÛCBˆÙ]ƒBˆÙ]ƒBˆÙ]ƒBƒBˆ]ˆÛ\ÜÏH™Ø›KXØ\™[Y]šXÜÈƒBˆ]ˆÛ\ÜÏH™Ø›K[Y]šXËZ][HƒBˆÜ[•šXXš[YYÜÜ[ƒBˆÜ[Ü[ˆÛ\ÜÏH˜˜YÙH	Ø˜YÙPÛ\ÜßH‰Ü›İË•šXXš[YYOÜÜ[ÜÜ[ƒBˆÙ]ƒBˆ]ˆÛ\ÜÏH™Ø›K[Y]šXËZ][HƒBˆÜ[ÛÛ™šX[˜HPOÜÜ[ƒBˆÜ[Ü[ˆÛ\ÜÏH›[XÛÛ™šY[˜ÙK\[	ØZPÛÛ™Û\ÜßH‰ØZPÛÛ™ŸOÜÜ[ÜÜ[ƒBˆÙ]ƒBˆ]ˆÛ\ÜÏH™Ø›K[Y]šXËZ][HƒBˆÜ[””ÒOÜÜ[ƒBˆÜ[‰Ü›İË””ÒH	Ó‹ĞIßOÜÜ[ƒBˆÙ]ƒBˆ]ˆÛ\ÜÏH™Ø›K[Y]šXËZ][HƒBˆÜ[Uˆ
+VŠOÜÜ[ƒBˆÜ[‰	Ü›İËU—ÓVËÑš^Y
+ŠH	Ì	ßOÜÜ[ƒBˆÙ]ƒBˆÙ]ƒBƒBˆ]ˆİ[OH™›Û\Ú^™NˆL\ÈÛÛÜˆ˜\ŠK]^\ÙXÛÛ™\JNÈÚ]K\ÜXÙNˆ›İÜ˜\Èİ™\™›İÎˆY[È^[İ™\™›İÎˆ[\Ú\ÎÈY[™Ë]ÜˆÈ›Ü™\‹]Üˆ\ÛÛY˜\ŠKYÛ\ÜËX›Ü™\ŠNÈ‚ˆHÛ\ÜÏH™˜K\ÛÛY˜KXÚ\˜ÛKZ[™›Èˆİ[OH˜ÛÛÜˆÌL‘‘ÈÚOˆ	Ü›İË“›İH	ÔİYÙ\™[˜ÚXHH[˜YHPIßBˆÙ]‚ˆ]ˆÛ\ÜÏH™]KYœ™\Ú™\ÜÈ	Ù]Tİ]\Ë˜ÜÜĞÛ\ÜßHˆ]OH‰Ù\ØØ\R[
+]Tİ]\Ë™]Z[
+_H‚ˆ	Ù]Tİ]\Ë›X™[H0­È	Ù\ØØ\R[
+]Tİ]\Ë™]Z[
+_BˆÙ]‚ˆÃBƒBˆÛÛZ[™\‹˜\[™Ú[
+Ø\™
+NÃBˆJNÃBŸCBƒB™[˜İ[Ûˆ™[™\•X›\Ê
+HÃBˆËÈŒ‹ËŒNˆÚH˜[[ˆÜÈ›ÙH
+S\˜ÚX[
+K›È[X˜\ˆ[š\ÛÜƒBˆYˆ
+]›Û][]UX›P›ÙHYÙ[\ÕX›P›ÙJH™]\›ÃBˆÛÛœİš[\ˆHš[\•šXXš[]K˜[YNÃBˆÛÛœİÙX\˜ÚHÙX\˜ÚXÚÙ\‹˜[YKÕ\\Ø\ÙJ
+NÃBˆBˆ]š[\™YH[™\İ[ÎÃBˆYˆ
+š[\ˆOOH•ÑTÈŠHÃBˆš[\™YHš[\™Y™š[\ŠˆOˆ‹•šXXš[YYOOHš[\ŠNÃBˆCBˆYˆ
+ÙX\˜Ú
+HÃBˆš[\™YHš[\™Y™š[\ŠˆOˆ‹•XÚÙ\‹Õ\\Ø\ÙJ
+Kš[˜ÛY\ÊÙX\˜Ú
+JNÃBˆCBˆBƒBˆËÈ›Û][]HX›H
+ÛÜYHšXXš[]H[ˆ›Û][]JCBˆ›Û][]UX›P›ÙKš[›™\’SHˆÃBˆBˆÛÛœİšXXš[]Tš[Üš]HHÃBˆ¼'çèˆVÑSS•HˆLBˆ¼'çèH•QSHˆBˆ¼'çèSÑTQHˆLBˆ¼'å-U’UTˆˆBˆ•ÑTÈˆBˆNÃBƒBˆÛÛœİ›ÛÛÜYHË‹‹˜[™\İ[×KœÛÜ
+
+KŠHOˆÃBˆÛÛœİHHšXXš[]Tš[Üš]VØK•šXXš[YYHÃBˆÛÛœİˆHšXXš[]Tš[Üš]VØ‹•šXXš[YYHÃBˆYˆ
+HOOHŠH™]\›ˆˆHNÃBˆ™]\›ˆ
+‹•›Û][]WÔ\˜Ù[
+HH
+K•›Û][]WÔ\˜Ù[
+NÃBˆJKœÛXÙJL
+NÃBˆBˆËÈ™[™\ˆĞ“HØ\™ÃBˆ™[™\‘Ğ“PØ\™ÊØİ[Y[™Ù][[Y[RY
+	İ›Û][]KXØ\™ËXÛÛZ[™\‰ÊK›ÛÛÜY
+NÃBƒBˆËÈ[\\ÈÜ°ë]XØ\È
+ÓJCBˆ\]UÛS[Ûš]ÜŠ
+NÃBˆYˆ
+›ÛÛÜY›[™İOOH
+HÃBˆ›Û][]UX›P›ÙKš[›™\’SHˆÛ\ÜÏH™[\K\›İÈÛÛÜ[HÈ“›È^H]ÜÈ]YH[Üİ˜\‹İİ˜ÃBˆH[ÙHÃBˆ›ÛÛÜY™›Ü‘XXÚ
+›İÈOˆÃBˆÛÛœİˆHØİ[Y[˜Ü™X]Q[[Y[
+ˆŠNÃBˆ‹›Û˜ÛXÚÈH
+
+HOˆÙ[XİXÚÙ\Š›İËŠNÃBˆBˆÛÛœİ˜YÙPÛ\ÜÈHÙ]˜YÙPÛ\ÜÊ›İË•šXXš[YY
+NÃBˆÛÛœİ›ÛH›İË•›Û][]WÔ\˜Ù[È	Ü›İË•›Û][]WÔ\˜Ù[Ñš^Y
+Š_IXˆ	Ì	IÎÃBˆBˆÛÛœİ]•Ø\›š[™ÈH›İË’\×Ó]™\˜YÙYÈ	ÏÜ[ˆÛ\ÜÏH˜˜YÙH]š]\ˆˆİ[OH™›Û\Ú^™N\ÛX\™Ú[‹[YÈTSSĞQÏÜÜ[‰Èˆ	ÉÎÃBˆ‹š[›™\’SHBˆİ›Û™Ï‰Ü›İË•XÚÙ\ŸIÛ]•Ø\›š[™ßOÜİ›Û™ÏİƒBˆ‰	Ê›İË”šXÙH
+KÑš^Y
+Š_HœÛX[İ[OH˜ÛÛÜ˜\ŠK]^\ÙXÛÛ™\JH‰	Ü›İË”šXÙWÓVËÑš^Y
+ŠH	Ó‹ĞIßHVÜÛX[İƒBˆİ[OH˜ÛÛÜˆ˜\ŠK]Ø\›š[™ËXÛÛÜŠNÈ›Û]ÙZYÚˆ›ÛÈ‰İ›ÛOİƒBˆÜ[ˆÛ\ÜÏH˜˜YÙH	Ø˜YÙPÛ\ÜßH‰Ü›İË•šXXš[YYOÜÜ[İƒBˆ‰	Ü›İËU—ÓVËÑš^Y
+ŠH	Ì	ßHVİƒBˆ‰Ü›İË””Ò_OİƒBˆƒBˆ	Ü›İËRWĞÛÛ™šY[˜ÙWĞ]˜Z[X›HOOHYH	‰ˆ\Ó[Y\šXÕ˜[YJ›İËRWĞÛÛ™šY[˜ÙJHÈÜ[ˆİ[OH™›Û\Ú^™NŒLØÛÛÜ˜\ŠKXXØÙ[XÛÛÜŠH–Ò\İ0ìÜšXÛÎ‰Ó[X™\Š›İËRWĞÛÛ™šY[˜ÙJKÑš^Y
+
+_IH0­ÈIÜ›İËRWÔØ[\WÔÚ^™HWOÜÜ[ˆˆ	ÏÜ[ˆİ[OH™›Û\Ú^™NŒLØÛÛÜ˜\ŠK]^\ÙXÛÛ™\JH–Ò\İ0ìÜšXÛÎˆ‹ÑOÜÜ[ˆ	ßBˆÜ[ˆİ[OH›X^]ÚYˆMLÈİ™\™›İÎˆY[È^[İ™\™›İÎˆ[\Ú\ÎÈ\Ü^Nš[›[™KX›ØÚÎÈ™\XØ[X[YÛ›ZYNÈ‰Ü›İË“›İH	ÉßOÜÜ[ƒBˆİƒBˆÃBˆ›Û][]UX›P›ÙK˜\[™Ú[
+ŠNÃBˆJNÃBˆCBƒBˆËÈÙ[\ÈX›H
+œ™XZÛİ][\œÊCBˆÙ[\ÕX›P›ÙKš[›™\’SHˆÃBˆÛÛœÛÛK›ÙÊ•İ[H™\İ[YÜÈ\˜Hš[˜\ˆÙ[X\Îˆ‹[™\İ[Ë›[™İ
+NÃBˆËÈš[\ˆ›ÜˆÙ[\Îˆ›ÛÔ˜][ÈˆKŒKPPÑ[\ÚØ\L‹S‘”ÒH™]ÙY[ˆÌ[™H
+›İİ™\˜›İYÚ
+CBˆËÈ“ÕNˆ]™\˜YÙYUœÈ
+ÓÖËÓÖTTK]ËŠH\™HVÓQQ™XØ]\ÙHZ\ƒBˆËÈİXİ\˜[XØ^HXZÙ\ÈXÚšXØ[[˜[\Ú\È[œ™[XX›H›ÜˆÛ™ÈÜÚ][ÛœËƒBˆÛÛœİÙ[\ÈHË‹‹˜[™\İ[×K™š[\ŠˆOˆÃBˆYˆ
+‹’\×Ó]™\˜YÙY
+H™]\›ˆ˜[ÙNÈËÈ•SĞH™XÛÛY[™\ˆ\[[˜ØYÜÈÛÛ[ÈÙ[X\ÃBˆÛÛœİ›Û˜][ÈH‹•›ÛÔ˜][ÈÃBˆÛÛœİXXÙÚYÛ˜[H‹“PPÑÔÚYÛ˜[‹“PPÑÈËÈ˜[˜XÚÈÚH›È\İ0èH[ˆØXÚ0êCBˆÛÛœİXXÙ\İH‹“PPÑÒ\İÃBˆÛÛœİX\šÙ]Ø\H‹“X\šÙ]ĞØ\ÃBˆBˆÛÛœİ\ÑÙ[HH
+›Û˜][ÈHKŒJH	‰ˆBˆ
+‹“PPÑˆXXÙÚYÛ˜[XXÙ\İˆ‹“PPÑˆ
+H	‰ƒBˆ
+‹””ÒHHÌ	‰ˆ‹””ÒH
+H	‰ƒBˆ
+X\šÙ]Ø\Œ
+NÃBˆBˆ™]\›ˆ\ÑÙ[NÃBˆJKœÛÜ
+
+KŠHOˆ
+‹•›ÛÔ˜][È
+HH
+K•›ÛÔ˜][È
+JKœÛXÙJL
+NÃBˆBˆÛÛœÛÛK›ÙÊ‘Ù[X\È[˜ÛÛ˜Y\Îˆ‹Ù[\Ë›[™İ
+NÃBˆ™[™\‘Ğ“PØ\™ÊØİ[Y[™Ù][[Y[RY
+	ÙÙ[\ËXØ\™ËXÛÛZ[™\‰ÊKÙ[\ÊNÃBˆBˆYˆ
+Ù[\Ë›[™İOOH
+HÃBˆÙ[\ÕX›P›ÙKš[›™\’SHˆÛ\ÜÏH™[\K\›İÈÛÛÜ[HÈ“›ÈÙH[˜ÛÛ˜\›ÛˆÙ[X\È[ˆ\İH°îœÜ]YYKİİ˜ÃBˆH[ÙHÃBˆÙ[\Ë™›Ü‘XXÚ
+›İÈOˆÃBˆÛÛœİˆHØİ[Y[˜Ü™X]Q[[Y[
+ˆŠNÃBˆ‹›Û˜ÛXÚÈH
+
+HOˆÙ[XİXÚÙ\Š›İËŠNÃBˆBˆÛÛœİØ\İˆH
+›İË“X\šÙ]ĞØ\ÈL
+KÑš^Y
+JH
+È	Ğ‰ÎÃBˆBˆ]İÛ\ÜÈH›™]]›ÈÃBˆYˆ
+›İË•›ÛÔ˜][Èˆ‹Œ
+HİÛ\ÜÈH˜[HÃBˆ[ÙHYˆ
+›İË•›ÛÔ˜][ÈˆKJHİÛ\ÜÈH›[Ù\˜YÈÃBˆBˆÛÛœİ]•Ø\›š[™ÈH›İË’\×Ó]™\˜YÙYÈ	ÏÜ[ˆÛ\ÜÏH˜˜YÙH]š]\ˆˆİ[OH™›Û\Ú^™N\ÛX\™Ú[‹[YÈTSSĞQÏÜÜ[‰Èˆ	ÉÎÃBˆ‹š[›™\’SHBˆİ›Û™Ï‰Ü›İË•XÚÙ\ŸIÛ]•Ø\›š[™ßOÜİ›Û™ÏİƒBˆ‰	Ê›İË”šXÙH
+KÑš^Y
+Š_HœÛX[İ[OH˜ÛÛÜ˜\ŠK]^\ÙXÛÛ™\JH‰	Ü›İË”šXÙWÓVËÑš^Y
+ŠH	Ó‹ĞIßHVÜÛX[İƒBˆ‰	ØØ\İŸOİƒBˆİ[OH˜ÛÛÜˆ˜\ŠKXXØÙ[XÛÛÜŠNÈ›Û]ÙZYÚˆ›ÛÈ‰Ü›İË•›ÛÔ˜][È^İƒBˆ‰Ê›İË“PPÑ
+KÑš^Y
+Š_OİƒBˆ‰Ü›İË””ÒH	Ó‹ĞIßOİƒBˆÜ[ˆÛ\ÜÏH˜˜YÙH	ÜİÛ\ÜßHœ™XZÛİ]Ù]\ÜÜ[İƒBˆÃBˆÙ[\ÕX›P›ÙK˜\[™Ú[
+ŠNÃBˆJNÃBˆCBŸCBƒB™[˜İ[ÛˆÙ[XİXÚÙ\Š›İË‘[[Y[
+HÂˆËÈYÚYÚ›İÃBˆØİ[Y[œ]Y\TÙ[XİÜ[
+‹™]K]X›H›ÙHˆŠK™›Ü‘XXÚ
+ˆOˆ‹˜Û\ÜÓ\İœ™[[İ™JœÙ[XİYŠJNÃBˆYˆ
+‘[[Y[	‰ˆ‘[[Y[˜Û\ÜÓ\İ
+H‘[[Y[˜Û\ÜÓ\İ˜Y
+œÙ[XİYŠNÂˆBˆÙ[XİYXÚÙ\‘]HH›İÎÃBˆBˆËÈ\]H]Z[È[™[BˆÛÛœİ˜YÙPÛ\ÜÈHÙ]˜YÙPÛ\ÜÊ›İË•šXXš[YY
+NÃBˆBˆÛÛœİ]Tİ]\ÈH][İTİ]\Ê›İÊNÂˆÛÛœİ[™[Y[[Ğ]˜Z[X›HH›İË‘[™[Y[[×Ğ]˜Z[X›HOOHYNÂˆ]]Z[ÒSHˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[ÛˆƒBˆ]ˆİ[OH™\Ü^N™›^È\İYKXÛÛ[œÜXÙKX™]ÙY[È[YÛ‹Z][\Î˜Ù[\ÈX\™Ú[‹X›İÛNŒLÈƒBˆÈİ[OH›X\™Ú[ŒÈ›Ü™\››Û™NÈ›Û\Ú^™NŒNÈÛÛÜÚ]NÈ‰Ü›İË•XÚÙ\ŸOÚÏƒBˆÜ[ˆÛ\ÜÏH˜˜YÙH	Ø˜YÙPÛ\ÜßH‰Ü›İË•šXXš[YYOÜÜ[ƒBˆÙ]ƒBˆ	Ü›İË’\×Ó]™\˜YÙYÈ	Ï]ˆİ[OH˜˜XÚÙÜ›İ[™œ™Ø˜JŒÎKŒMJNØ›Ü™\Œ\ÛÛY™Ø˜JŒÎK
+NØ›Ü™\‹\˜Y]\ÎÜY[™ÎLœÛX\™Ú[‹X›İÛNŒLÙ›Û\Ú^™NŒLœØÛÛÜˆÙYÈİ›Û™ÏQ‘T•SÒPNÜİ›Û™ÏˆUˆ\[[˜ØYËˆ[[˜[\Ú\ÈXÛšXÛÈÛ\ÚXÛÈ“È\È\XØX›Kˆ\İÜÈ[œİ[Y[ÜÈY[™[ˆXØZ[ZY[È\İXİ\˜[Üˆ\Ù[›ÈH“ÈÛÛˆ\˜HÛÙ]‰Èˆ	ÉßCBˆ]ˆÛ\ÜÏH™]Z[YÜšYƒBˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[”™XÚ[ÈTÑÜÜ[Ü[ˆÛ\ÜÏH˜[‰	Ê›İË”šXÙH
+KÑš^Y
+Š_OÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[”™XÚ[ÈVÜÜ[Ü[ˆÛ\ÜÏH˜[ˆİ[OH˜ÛÛÜ˜\ŠK\İXØÙ\ÜËXÛÛÜŠH‰	Ü›İË”šXÙWÓVËÑš^Y
+ŠH	Ó‹ĞIßOÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[”ØÛÜ™H]\°ë\İXÛÏÜÜ[Ü[ˆÛ\ÜÏH˜[ˆİ[OH˜ÛÛÜ˜\ŠK\š[X\KXÛÛÜŠH‰Ü›İË”ØÛÜ™HKÌLÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[”ØÛÜ™HSÜÜ[Ü[ˆÛ\ÜÏH˜[ˆİ[OH˜ÛÛÜ˜\ŠKXXØÙ[XÛÛÜŠNÈ›Û]ÙZYÚ˜›ÛÈ‰Ü›İË“SÔÛİ\˜ÙHOOH	İ˜[Y]YÛ[Û[Ù[	È	‰ˆ\Ó[Y\šXÕ˜[YJ›İË“SÔØÛÜ™JHÈ	Ó[X™\Š›İË“SÔØÛÜ™JKÑš^Y
+J_KÌLÛX[İ[OH™›Û\Ú^™NŒLÛÜXÚ]NŒÈŠ	Ù\ØØ\R[
+›İË“SĞÛÛ™šY[˜ÙH	ÓS	Ê_JOÜÛX[˜ˆ‹ÑÛX[İ[OH™›Û\Ú^™NŒLÛÜXÚ]NŒÈŠÛÛÈ]\°ë\İXØIÜ›İË“SÑYÜ˜YYÔ™X\ÛÛˆÈ	Îˆ	ÊÙ\ØØ\R[
+›İË“SÑYÜ˜YYÔ™X\ÛÛŠHˆ	ÉßJOÜÛX[˜OÜÜ[Ù]‚ˆÙ]ƒBˆÙ]‚‚ˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[Ûˆ]KXÛÛ˜Xİ	Ù]Tİ]\Ë˜ÜÜĞÛ\ÜßH‚ˆÏØ[YYHœ™\Øİ\˜OÚÏ‚ˆİ›Û™Ï‰Ù]Tİ]\Ë›X™[OÜİ›Û™ÏÜ‚ˆ‰Ù\ØØ\R[
+]Tİ]\Ë™]Z[
+_OÜ‚ˆ	Ü›İË”ÚYÛ˜[Ñ[YÚX›HOOH˜[ÙH›İËœÚYÛ˜[Ù[YÚX›HOOH˜[ÙHÈ	ÏÛ\ÜÏHœÚYÛ˜[X›ØÚÙY”ÒSˆÑpäPSˆ]ÜÈ™[˜ÚYÜÈÈØ[YY[œİYšXÚY[KÜ‰Èˆ	ÉßBˆÙ]‚ˆBˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[ÛˆƒBˆÏ‘\ÙÛÜÙHHØÛÜ™OÚÏƒBˆ]ˆÛ\ÜÏH™]Z[YÜšYƒBˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[•0êXÛšXÛÏÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İË”ØÛÜ™WÕXÚ
+HÈ	Ü›İË”ØÛÜ™WÕXÚKÍˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[‘[™[Y[[ÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ù[™[Y[[Ğ]˜Z[X›H	‰ˆ\Ó[Y\šXÕ˜[YJ›İË”ØÛÜ™WÑ[™
+HÈ	Ü›İË”ØÛÜ™WÑ[™KÍˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[“\]ZY^ÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İË”ØÛÜ™WÓ\JHÈ	Ü›İË”ØÛÜ™WÓ\_KÌŒˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆÙ]ƒBˆÙ]ƒBƒBˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[ÛˆƒBˆÏ’[™XØYÜ™\È0êXÛšXÛÜÏÚÏƒBˆ]ˆÛ\ÜÏH™]Z[YÜšYƒBˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[””ÒOÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İË””ÒJHÈ›İË””ÒHˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[“PPÑÈÙpìX[È\İÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İË“PPÑ
+H	‰ˆ\Ó[Y\šXÕ˜[YJ›İË“PPÑÔÚYÛ˜[
+H	‰ˆ\Ó[Y\šXÕ˜[YJ›İË“PPÑÒ\İ
+HÈ	Ó[X™\Š›İË“PPÑ
+KÑš^Y
+Š_HÈ	Ó[X™\Š›İË“PPÑÔÚYÛ˜[
+KÑš^Y
+Š_HÈ	Ó[X™\Š›İË“PPÑÒ\İ
+KÑš^Y
+Š_Xˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[“PLLÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İË“PLL
+HÈ	É	ÊÜ›İË“PLLˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[“PLŒÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İË“PLŒ
+HÈ	É	ÊÜ›İË“PLŒˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆÙ]ƒBˆÙ]‚‚ˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[Ûˆ‚ˆÏ“[İÜˆ]\°ë\İXÛÈ	Ù\ØØ\R[
+›İË’]\š\İX×Õ™\œÚ[Ûˆ	ÜÚ[ˆ™\œÚpìÛ‰Ê_OÚÏ‚ˆİ›Û™Ï‘\İYÎÜİ›Û™Ïˆ	Ù\ØØ\R[
+›İË”ÚYÛ˜[Ôİ]H	ÔÒSˆÑpäPS	Ê_OÜ‚ˆİ›Û™Ï’Üš^›Û\ÎÜİ›Û™Ïˆ	ÓØš™Xİ™[šY\Ê›İË’Üš^›Û—ÔØÛÜ™\ÈßJK›X\
+
+Û˜[YK][WJHOˆ	Ù\ØØ\R[
+˜[YJ_H	Ù\ØØ\R[
+][KœÙ\ÜÚ[ÛœÊ_Nˆ	Ù\ØØ\R[
+][Kœİ]J_H
+	Ó[X™\Š][KœØÛÜ™JKÑš^Y
+Š_JX
+Kš›Ú[Š	È0­È	ÊH	Ó‹Ñ	ßOÜ‚ˆİ›Û™ÏÛÛšXXÚ[Û™\ÎÜİ›Û™Ïˆ	ÓØš™Xİ™[šY\Ê›İË”ØÛÜ™WĞÛÛšX][ÛœÈßJK›X\
+
+Û˜[YK˜[YWJHOˆ	Ù\ØØ\R[
+˜[YJ_H	Ó[X™\Š˜[YJHHÈ	ÊÉÈˆ	ÉßIÓ[X™\Š˜[YJKÑš^Y
+Š_X
+Kš›Ú[Š	È0­È	ÊH	Ó‹Ñ	ßOÜ‚ˆİ›Û™Ï‘]ÜÈ˜[[\ÎÜİ›Û™Ïˆ	Ü›İË’]\š\İX×Õ™\œÚ[ÛˆÈ
+
+›İË“Z\ÜÚ[™×Ò[™XØ]ÜœÈ×JK›X\
+\ØØ\R[
+Kš›Ú[Š	Ë	ÊH	Ûš[™İ[›ÉÊHˆ	Û›È]˜[XYÈ
+™\İ[YÈ\™YYÊIßOÜ‚ˆ	Ê›İË”ÚYÛ˜[Ô™\İšXİ[ÛœÈ×JK›[™İÈÛ\ÜÏHœÚYÛ˜[X›ØÚÙYİ›Û™Ï”™\İšXØÚ[Û™\ÎÜİ›Û™Ïˆ	Ü›İË”ÚYÛ˜[Ô™\İšXİ[ÛœË›X\
+\ØØ\R[
+Kš›Ú[Š	È0­È	Ê_OÜ˜ˆ	ÉßBˆÙ]‚‚ˆ	Ü›İË‘\Ú[Û—Ñ^[˜][ÛˆÈˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[Ûˆˆİ[OH˜›Ü™\Œ\ÛÛY˜\ŠK\š[X\KXÛÛÜŠNØ›Ü™\‹\˜Y]\ÎÜY[™ÎŒLÈ‚ˆÏ•™\™YXİÈ\Ú[Û˜YÈ	Ù\ØØ\R[
+›İË‘\Ú[Û—Õ™\œÚ[Ûˆ	ÉÊ_OÚÏ‚ˆİ›Û™ÏH˜]›ÜÜİ›Û™Ïˆ	Ê›İË‘\Ú[Û—Ñ^[˜][Û‹™˜XİÜœ×Ù›Üˆ×JK›X\
+\ØØ\R[
+Kš›Ú[Š	È0­È	Ê_OÜ‚ˆİ›Û™Ï‘[ˆÛÛ˜NÜİ›Û™Ïˆ	Ê›İË‘\Ú[Û—Ñ^[˜][Û‹™˜XİÜœ×ØYØZ[œİ×JK›X\
+\ØØ\R[
+Kš›Ú[Š	È0­È	Ê_OÜ‚ˆİ›Û™Ï’[˜[YXÚpìÛÜİ›Û™Ïˆ	Ê›İË‘\Ú[Û—Ñ^[˜][Û‹š[˜[Y][Û—İšYÙÙ\œÈ×JK›X\
+\ØØ\R[
+Kš›Ú[Š	È0­È	Ê_OÜ‚ˆ	Ü›İË”š\Ú×Ô[ˆÈİ›Û™Ï”šY\ÙÛÎÜİ›Û™Ïˆ	Ü›İË”š\Ú×Ô[‹œÜÚ][Û—ÜÚ^™WÜÚ\™\ßHXØÚ[Û™\È0­ÈİÜ		Ó[X™\Š›İË”š\Ú×Ô[‹œİÜÜšXÙJKÑš^Y
+Š_H0­È0ê\™YHpè^[XH		Ó[X™\Š›İË”š\Ú×Ô[‹›X^[][WÛÜÜÊKÑš^Y
+Š_H0­ÈÜš^›ÛH	Ù\ØØ\R[
+›İË”š\Ú×Ô[‹šÜš^›ÛŠ_OÜ˜ˆ	ÉßBˆÙ]˜ˆ	ÉßB‚ˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[ÛˆÚYÛ˜[]˜[œÜ\™[˜ŞHˆ\šXK[X™[H•˜[œÜ\™[˜ÚXHHHÙpìX[‚ˆÏ”]pêHØX™H[Ú\İ[XHH]pêH›ÏÚÏ‚ˆİ›Û™Ï’Üš^›ÛNÜİ›Û™Ïˆ	Ù\ØØ\R[
+›İË”š\Ú×Ô[ËšÜš^›Ûˆ	ÜİÚ[™ÈKLŒÙ\Ú[Û™\ÉÊ_H0­Èİ›Û™Ï‘œ™\Øİ\˜NÜİ›Û™Ïˆ	Ù\ØØ\R[
+›İË”][İOË™œ™\Ú™\Ü×ÜÙXÛÛ™ÈÏÈ	Ó‹Ñ	Ê_HÈ0­Èİ›Û™Ï”›İ™YYÜÜİ›Û™Ïˆ	Ù\ØØ\R[
+›İË”][İOËœ›İšY\ˆ	Ó‹Ñ	Ê_OÜ‚ˆİ›Û™Ï”›Ø˜Xš[YYSØ[Xœ˜YNÜİ›Û™Ïˆ	Ú\Ó[Y\šXÕ˜[YJ›İËØ[Xœ˜]YÔ›Ø˜Xš[]JHÈ	Ê[X™\Š›İËØ[Xœ˜]YÔ›Ø˜Xš[]JH
+ˆL
+KÑš^Y
+J_IXˆ	Ó‹Ñ8 %[Ù[È›È\›Ø˜YÈÈÚ[ˆØ[Xœ˜XÚpìÛ‰ßOÜ‚ˆİ›Û™Ï’]\°ë\İXØNÜİ›Û™Ïˆ	Ú\Ó[Y\šXÕ˜[YJ›İË”ØÛÜ™JHÈ[X™\Š›İË”ØÛÜ™JKÑš^Y
+ŠHˆ	Ó‹Ñ	ßH0­Èİ›Û™Ï‘›İ\šY\Üİ›Û™Ïˆ	Ü›İË”ÜXİ˜[Õ˜[Y]YÈ\ØØ\R[
+›İË”ÜXİ˜[ÔØÛÜ™JHˆ	Ù^\š[Y[[›È\ØYÈ[ˆ[™\™YXİÉßOÜ‚ˆİ›Û™ÏØ[YYH]ÜÎÜİ›Û™Ïˆ	Ú\Ó[Y\šXÕ˜[YJ›İË‘]WÔ]X[]JHÈ	Ê[X™\Š›İË‘]WÔ]X[]JH
+ˆL
+KÑš^Y
+J_IXˆ	Ó‹Ñ	ßH0­Èİ›Û™Ï’[˜Ù\Y[Xœ™NÜİ›Û™Ïˆ	Ü›İË‘]WÔ]X[]HMHÈ	Ø[IÈˆ
+\Ó[Y\šXÕ˜[YJ›İËØ[Xœ˜]YÔ›Ø˜Xš[]JHÈ	ØİX[YšXØYIÈˆ	Û›ÈİX[YšXØYIÊ_OÜ‚ˆİ›Û™Ï•™\œÚ[Û™\ÎÜİ›Û™Ïˆ™YÛ\È	Ù\ØØ\R[
+›İË‘\Ú[Û—Õ™\œÚ[Ûˆ	Ó‹Ñ	Ê_H0­È[Ù[È	Ù\ØØ\R[
+›İË“[Ù[Õ™\œÚ[Ûˆ	Ó‹Ñ	Ê_OÜ‚ˆÛ\ÜÏH™š[˜[˜ÚX[Y\ØÛZ[Y\ˆ“›ÈØ\˜[^˜H™\İ[YÜÈšHÛÛœİ]^YH\Ù\ÛÜ°ëXHš[˜[˜ÚY\˜KÜ‚ˆÙ]‚ˆˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[Ûˆ‚ˆÏ•›Û][YYH[™[Y[[\ÏÚÏƒBˆ]ˆÛ\ÜÏH™]Z[YÜšYƒBˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[UˆTÑÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İËUŠHÈ	É	ÊÓ[X™\Š›İËUŠKÑš^Y
+ŠHˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[UˆVÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İËU—ÓVŠHÈ	É	ÊÓ[X™\Š›İËU—ÓVŠKÑš^Y
+ŠHˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[•›Û	OÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ú\Ó[Y\šXÕ˜[YJ›İË•›Û][]WÔ\˜Ù[
+HÈ[X™\Š›İË•›Û][]WÔ\˜Ù[
+KÑš^Y
+ŠJÉÉIÈˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆ]ˆÛ\ÜÏH™]Z[Z][HÜ[ˆÛ\ÜÏH›X™[™]OÜÜ[Ü[ˆÛ\ÜÏH˜[‰Ù[™[Y[[Ğ]˜Z[X›H	‰ˆ\Ó[Y\šXÕ˜[YJ›İË™]JHÈ›İË™]Hˆ	Ó‹Ñ	ßOÜÜ[Ù]‚ˆÙ]ƒBˆÙ]ƒBˆBˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[ÛˆƒBˆÏ“›İ\ÏÚÏƒBˆİ[OH˜ÛÛÜˆ˜\ŠK]Ø\›š[™ËXÛÛÜŠNÈ›Û\Ú^™NŒLÜÈ‰Ü›İË“›İH	ÔÚ[ˆ›İ\ÉßOÜƒBˆÙ]ƒBˆBˆ	Ü›İË“SĞœ™XZÙİÛˆ	‰ˆØš™XİšÙ^\Ê›İË“SĞœ™XZÙİÛŠK›[™İˆÈBˆ]ˆÛ\ÜÏH™]Z[\ÙXİ[Ûˆˆİ[OH˜›Ü™\ˆ\ÛÛY˜\ŠKXXØÙ[XÛÛÜŠNÈY[™ÎˆLÈ›Ü™\‹\˜Y]\ÎˆÈƒBˆÈİ[OH˜ÛÛÜˆ˜\ŠKXXØÙ[XÛÛÜŠNÈX\™Ú[‹]ÜˆÈHÛ\ÜÏH™˜K\ÛÛY˜KXœ˜Z[ˆÚOˆ[°è[\Ú\ÈS™YXİ]›ÏÚÏƒBˆ]ˆÛ\ÜÏH™]Z[YÜšYƒBˆ	ÓØš™Xİ™[šY\Ê›İË“SĞœ™XZÙİÛŠK›X\
+
+ÚË—JHOˆBˆ]ˆÛ\ÜÏH™]Z[Z][HƒBˆÜ[ˆÛ\ÜÏH›X™[‰ÚßOÜÜ[ƒBˆÜ[ˆÛ\ÜÏH˜[ˆİ[OH˜ÛÛÜ‰İˆˆÈ	İ˜\ŠK\İXØÙ\ÜËXÛÛÜŠIÈˆ	İ˜\ŠKY[™Ù\‹XÛÛÜŠIßH‰İˆˆÈ	ÊÉÈˆ	ÉßIİŸOÜÜ[ƒBˆÙ]ƒBˆ
+Kš›Ú[Š	ÉÊ_CBˆÙ]ƒBˆİ[OH™›Û\Ú^™NˆL\ÈÛÛÜˆ˜\ŠK]^\ÙXÛÛ™\JNÈX\™Ú[‹]ÜˆÈX\™Ú[‹X›İÛNˆÈŠˆÜ™X]\™\ÈH[\XİÈ[ˆH™YXØÚpìÛˆXİX[
+[Ù[ÈÜ˜YY[›ÛÜİ[™ÊKÜƒBˆÙ]ƒBˆˆ	ÉßCBˆÃBˆBˆYˆ
+]Z[ĞÛÛ[
+H]Z[ĞÛÛ[š[›™\’SH]Z[ÒSÃBˆBˆËÈÛÛ™šYİ\˜\ˆÛÛ™šX[˜HPCBˆÛÛœİZPÛÛ™ÛÛ[HØİ[Y[™Ù][[Y[RY
+˜ZKXÛÛ™šY[˜ÙKXÛÛ[ŠNÃBˆÛÛœİ™YY˜XÚĞ]ÛœÈHÂˆØİ[Y[™Ù][[Y[RY
+˜‹Y™YY˜XÚËYÛÛÙŠKˆØİ[Y[™Ù][[Y[RY
+˜‹Y™YY˜XÚËX˜YŠBˆNÂˆYˆ
+ZPÛÛ™ÛÛ[
+HÃBˆYˆ
+›İËRWĞÛÛ™šY[˜ÙWĞ]˜Z[X›HOOHYH	‰ˆ\Ó[Y\šXÕ˜[YJ›İËRWĞÛÛ™šY[˜ÙJJHÂˆ]ÛÛÜˆH	İ˜\ŠK]^\ÙXÛÛ™\JIÎÃBˆYˆ
+›İËRWĞÛÛ™šY[˜ÙHHÌ
+HÛÛÜˆH	İ˜\ŠK\İXØÙ\ÜËXÛÛÜŠIÎÃBˆ[ÙHYˆ
+›İËRWĞÛÛ™šY[˜ÙHHÌ
+HÛÛÜˆH	İ˜\ŠKY[™Ù\‹XÛÛÜŠIÎÃBˆBˆ]›İ\Ò[H›İËRWÓ›İ\È	‰ˆ›İËRWÓ›İ\Ë›[™İˆÈBˆ[İ[OH›X\™Ú[ˆ\M\ÈY[™ÎˆÈ›Û\Ú^™NˆLœÈÛÛÜˆ˜\ŠK]^\ÙXÛÛ™\JNÈƒBˆ	Ü›İËRWÓ›İ\Ë›X\
+ˆOˆO‰ÛŸOÛO˜
+Kš›Ú[Š	ÉÊ_CBˆİ[˜ˆ	ÉÎÃBˆBˆZPÛÛ™ÛÛ[š[›™\’SHBˆ]ˆİ[OH™\Ü^N™›^È[YÛ‹Z][\Î˜Ù[\È\İYKXÛÛ[œÜXÙKX™]ÙY[ÈƒBˆÜ[ˆİ[OH™›Û\Ú^™NˆMÈ›Û]ÙZYÚˆLÈ”ØÛÜ™H\İ0ìÜšXÛÎÜÜ[ƒBˆÜ[ˆİ[OH™›Û\Ú^™NˆNÈ›Û]ÙZYÚˆ›ÛÈÛÛÜˆ	ØÛÛÜŸNÈ‰Ü›İËRWĞÛÛ™šY[˜ÙKÑš^Y
+J_IOÜÜ[ƒBˆÙ]ƒBˆ	Û›İ\Ò[CBˆÃBˆBˆH[ÙHÂˆZPÛÛ™ÛÛ[š[›™\’SHÛ\ÜÏHœXÙZÛ\‹]^‘]ÜÈHPH›È\ÜÛšX›\Èpî›‹Ü˜ÂˆBˆÛÛœİ™YY˜XÚĞ]˜Z[X›HH›ÛÛX[Š›İË”™YXİ[Û—ÒQÏË–ÉÍI×JNÂˆÛÛœİ™YY˜XÚĞÛÛ›ÛÈHØİ[Y[™Ù][[Y[RY
+	Ù™YY˜XÚËXÛÛ›ÛÉÊNÂˆYˆ
+™YY˜XÚĞÛÛ›ÛÊH™YY˜XÚĞÛÛ›ÛËœİ[K™\Ü^HH™YY˜XÚĞ]˜Z[X›HÈ	Ø›ØÚÉÈˆ	Û›Û™IÎÂˆ™YY˜XÚĞ]ÛœË™›Ü‘XXÚ
+]ÛˆOˆÂˆYˆ
+X]ÛŠH™]\›Âˆ]Û‹œİ[K™\Ü^HH™YY˜XÚĞ]˜Z[X›HÈ˜›ØÚÈˆˆ››Û™HÂˆ]Û‹™\ØX›YH˜[ÙNÂˆJNÂˆCBˆBˆËÈØ[İ[]Hš\ÚÃBˆØ[İ[]Tš\ÚÊ›İÊNÃBŸCBƒB˜\Ş[˜È[˜İ[ÛˆØ[İ[]Tš\ÚÊ›İÊHÃBˆHÃBˆÛÛœİØ\][HØİ[Y[™Ù][[Y[RY
+œš\ÚËXØ\][ŠK˜[YNÃBˆÛÛœİš\ÚÔİHØİ[Y[™Ù][[Y[RY
+œš\ÚË\İŠK˜[YNÃBˆÛÛœİ]“][HØİ[Y[™Ù][[Y[RY
+œš\ÚËX]ˆŠK˜[YNÃBˆBˆÛÛœİ™\ÈH]ØZ]™]Ú
+	ĞTWÕT“KÜš\ÚËØØ[İ[]XÃBˆY]Ùˆ”ÔÕ‹BˆXY\œÎˆÈÛÛ[U\Hˆ˜\XØ][Û‹ÚœÛÛˆˆKBˆ›ÙNˆ”ÓÓ‹œİš[™ÚYJÃBˆØ\][ˆØ\][BˆšXÙNˆ›İË”šXÙKBˆ]ˆ›İËUˆBˆš\Ú×Üİˆš\ÚÔİBˆ]—Û][\Y\ˆ]“][BˆJCBˆJNÃBˆBˆÛÛœİ]HH]ØZ]™\ËšœÛÛŠ
+NÃBˆBˆYˆ
+]K™\œ›ÜŠHÃBˆš\ÚÓİ]]š[›™\’SHİ[OH˜ÛÛÜ˜\ŠKY[™Ù\‹XÛÛÜŠHH]K[XÚYOH˜[\]šX[™ÛHÚOˆ	Ù]K™\œ›ÜŸOÜ˜ÃBˆH[ÙHÃBˆÛÛœİ]”š\ÚÕØ\›ˆH›İË’\×Ó]™\˜YÙYÈ	Ï]ˆİ[OH˜˜XÚÙÜ›İ[™œ™Ø˜JŒÎKŒMJNØ›Ü™\Œ\ÛÛY™Ø˜JŒÎK
+NØ›Ü™\‹\˜Y]\ÎÜY[™ÎLœÛX\™Ú[‹X›İÛNŒLÙ›Û\Ú^™NŒLœØÛÛÜˆÙYÈİ›Û™Ï““È‘PÓÓQS‘QÎÜİ›Û™ÏˆÜÈØ[İ[ÜÈHšY\ÙÛÈ›ÈÛÛˆÛÛ™šXX›\È[ˆUœÈ\[[˜ØYÜËˆİH›Û][YY][\XØYHHXØZ[ZY[ÈX\š[È[˜[Y[ˆÜÈY]ÙÜÈ˜YXÚ[Û˜[\ËÙ]‰Èˆ	ÉÎÃBˆš\ÚÓİ]]š[›™\’SH]”š\ÚÕØ\›ˆ
+ÈBˆ]ˆİ[OH›X\™Ú[‹X›İÛNŒLÈ›Û]ÙZYÚŒÈÛÛÜÚ]NÈ”[ˆ\˜H	Ü›İË•XÚÙ\ŸOÙ]ƒBˆ]ˆÛ\ÜÏHœš\ÚËXØ[ËYÜšYƒBˆ]ˆÛ\ÜÏHœš\ÚË\İ]Ü[XØÚ[Û™\ÏÜÜ[Ü[‰Ù]K›[WØXØÚ[Û™\ßOÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏHœš\ÚË\İ]Ü[’[™\œÚpìÛÜÜ[Ü[‰	Ù]K˜Ø\][Ü™\]Y\šYßOÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏHœš\ÚË\İ]İÜÜ[”İÜSÜÜÏÜÜ[Ü[‰	Ù]KœİÜÛÜÜßOÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏHœš\ÚË\İ]\™Ù]Ü[•\™Ù]
+ŒJOÜÜ[Ü[‰	Ù]Kœ™XÚ[×ÛØš™]]›ßOÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏHœš\ÚË\İ]Ü[”šY\ÙÛÈpè^ÜÜ[Ü[‰	Ù]KœšY\ÙÛ×ÛX^[[ßOÜÜ[Ù]ƒBˆ]ˆÛ\ÜÏHœš\ÚË\İ]\™Ù]Ü[™[™YšXÚ[ÈİÜÜ[Ü[ŠÉ	Ù]K˜™[™YšXÚ[×Üİ[˜ÚX[OÜÜ[Ù]ƒBˆÙ]ƒBˆÃBˆCBˆBˆHØ]Ú
+JHÃBˆÛÛœÛÛK™\œ›ÜŠ‘\œ›ÜˆØ[İ[][™Èš\ÚÈ‹JNÃBˆCBŸCBƒB™[˜İ[Ûˆ\]UÛS[Ûš]ÜŠ
+HÃBˆYˆ
+]ÛS[Ûš]Üˆ]ÛPÛÛ[
+H™]\›ÃBˆBˆÛÛœİÛQ]HH[™\İ[Ë™š[™
+ˆOˆ‹•XÚÙ\ˆOOH•ÓHŠNÃBˆYˆ
+]ÛQ]JHÃBˆÛS[Ûš]Ü‹œİ[K™\Ü^HH››Û™HÃBˆ™]\›ÃBˆCBˆBˆÛS[Ûš]Ü‹œİ[K™\Ü^HH˜›ØÚÈÃBˆÛÛœİœÚHHÛQ]K””ÒNÃBˆ]˜YÙPÛ\ÜÈHšÛÃBˆ]Xİ[Û•^H“PS•S‘TˆÃBˆBˆYˆ
+œÚHÍJHÃBˆ˜YÙPÛ\ÜÈH˜^HÈXİ[Û•^H¼'çèˆÓÓTHÈS•QHÃBˆH[ÙHYˆ
+œÚHˆJHÃBˆ˜YÙPÛ\ÜÈHœÙ[ÈXİ[Û•^H¼'æäH‘S•HÈĞSQHÃBˆCBˆBˆÛÛœİ™X\ÛÛœÈH×NÃBˆYˆ
+œÚHÍJH™X\ÛÛœËœ\Ú
+OH]K[XÚYOH˜ÚXÚÈÚOˆ”ÒH[ˆÛØœ™]™[H
+	ÜœÚ_JOÛO˜
+NÃBˆYˆ
+œÚHˆJH™X\ÛÛœËœ\Ú
+OH]K[XÚYOH˜[\]šX[™ÛHÚOˆ”ÒH[ˆÛØœ™XÛÛ\˜H
+	ÜœÚ_JOÛO˜
+NÃBˆYˆ
+İš[™ÊÛQ]K•šXXš[YYˆŠKš[˜ÛY\Ê‘VÑSS•HŠJH™X\ÛÛœËœ\Ú
+OHÛ\ÜÏH™˜K\ÛÛY˜K\İ\ˆÚOˆšXXš[YY^Ù[[H]XİYOÛO˜
+NÃBˆBˆÛPÛÛ[š[›™\’SHBˆ]ˆÛ\ÜÏHÛK\šXÙH‰	İÛQ]K”šXÙKÑš^Y
+Š_OÙ]ƒBˆ]ˆÛ\ÜÏHÛKX˜YÙH	Ø˜YÙPÛ\ÜßH‰ØXİ[Û•^OÙ]ƒBˆ[Û\ÜÏHÛK\™X\ÛÛœÈƒBˆ	Ü™X\ÛÛœË›[™İˆÈ™X\ÛÛœËš›Ú[Š	ÉÊHˆ	ÏOHÛ\ÜÏH™˜K\ÛÛY˜KXÚ\˜ÛK[›İÚÚOˆ[™[˜ÚXH\İX›KˆÚ[ˆÙpìX[\ÈH[˜YKÜØ[YKÛO‰ßCBˆİ[ƒBˆ]ˆİ[OH™›Û\Ú^™NˆL\ÈÛÛÜˆ˜\ŠK]^\ÙXÛÛ™\JNÈX\™Ú[‹]ÜˆLÈƒBˆ˜\ØYÈ[ˆ”ÒHHšXXš[YY0êXÛšXØH›ËƒBˆÙ]ƒBˆÃBŸCBƒB‹Êˆ8¥ 8¥ ÛØ˜[[YHÙÙÛH
+Œ‹ËÊH8¥ 8¥ 
+‹ÃB™[˜İ[ÛˆÙÙÛU[YJ
+HÃBˆÛÛœİ[HØİ[Y[™Øİ[Y[[[Y[ÃBˆÛÛœİ\Ñ\šÈH[˜Û\ÜÓ\İ˜ÛÛZ[œÊ	Ù\šÉÊH[™Ù]]šX]J	Ù]K][YIÊHOOH	Ù\šÉÎÃBˆÛÛœİ™^H\Ñ\šÈÈ	ÛYÚ	Èˆ	Ù\šÉÎÃBˆBˆYˆ
+™^OOH	Ù\šÉÊHÃBˆ[˜Û\ÜÓ\İ˜Y
+	Ù\šÉÊNÃBˆ[˜Û\ÜÓ\İœ™[[İ™J	ÛYÚ	ÊNÃBˆ[œÙ]]šX]J	Ù]K][YIË	Ù\šÉÊNÃBˆH[ÙHÃBˆ[˜Û\ÜÓ\İ˜Y
+	ÛYÚ	ÊNÃBˆ[˜Û\ÜÓ\İœ™[[İ™J	Ù\šÉÊNÃBˆ[œÙ]]šX]J	Ù]K][YIË	ÛYÚ	ÊNÃBˆCBˆBˆHÈØØ[İÜ˜YÙKœÙ]][J	İ[YIË™^
+NÈHØ]Ú
+JHßCBˆ\]U[YRXÛÛŠ™^
+NÃBˆBˆYˆ
+Ú[™İË›\]ZYÓ	‰ˆ\[ÙˆÚ[™İË›\]ZYÓœŞ[˜ÕÚ]OOH	Ù[˜İ[Û‰ÊHÃBˆ™\]Y\İ[š[X][Û‘œ˜[YJ
+
+HOˆÈHÈÚ[™İË›\]ZYÓœŞ[˜ÕÚ]
+
+NÈHØ]Ú
+J^ßHJNÃBˆCBŸCBƒB™[˜İ[Ûˆ\]U[YRXÛÛŠ[YJHÃBˆÛÛœİˆHØİ[Y[™Ù][[Y[RY
+	İ[YKX‰ÊNÃBˆYˆ
+ŠHÃBˆ‹š[›™\’SH[YHOOH	Ù\šÉÈÈ	ÏH]K[XÚYOHœİ[ˆÚO‰Èˆ	ÏH]K[XÚYOH›[ÛÛˆÚO‰ÎÃBˆ‹œÙ]]šX]J	İ]IË[YHOOH	Ù\šÉÈÈ	ĞØ[XšX\ˆH[ÙÈÛ\›ÉÈˆ	ĞØ[XšX\ˆH[ÙÈÜØİ\›ÉÊNÃBˆYˆ
+Ú[™İË›XÚYH	‰ˆ\[ÙˆXÚYK˜Ü™X]RXÛÛœÈOOH	Ù[˜İ[Û‰ÊHÃBˆHÈXÚYK˜Ü™X]RXÛÛœÊ
+NÈHØ]Ú
+JHßCBˆCBˆCBŸCBƒBŠ[˜İ[ÛŠ
+HÃBˆÛÛœİØ]™Y[YHH
+[˜İ[ÛŠ
+HÃBˆHÈ™]\›ˆØØ[İÜ˜YÙK™Ù]][J	İ[YIÊH	Ù\šÉÎÈHØ]Ú
+JHÈ™]\›ˆ	Ù\šÉÎÈCBˆJJ
+NÃBˆØİ[Y[™Øİ[Y[[[Y[˜Û\ÜÓ\İœ™[[İ™J	ÛYÚ	Ë	Ù\šÉÊNÃBˆØİ[Y[™Øİ[Y[[[Y[˜Û\ÜÓ\İ˜Y
+Ø]™Y[YJNÃBˆØİ[Y[™Øİ[Y[[[Y[œÙ]]šX]J	Ù]K][YIËØ]™Y[YJNÃBˆBˆYˆ
+Øİ[Y[œ™XYTİ]HOOH	ÛØY[™ÉÊHÃBˆØİ[Y[˜Y]™[\İ[™\Š	ÑÓPÛÛ[ØYY	Ë
+
+HOˆ\]U[YRXÛÛŠØ]™Y[YJJNÃBˆH[ÙHÃBˆ\]U[YRXÛÛŠØ]™Y[YJNÃBˆCBŸJJ
+NÃB
