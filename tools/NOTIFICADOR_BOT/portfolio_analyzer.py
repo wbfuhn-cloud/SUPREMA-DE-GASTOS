@@ -14,6 +14,7 @@ from stock_scanner import (
 from market_data import exchange_rate_contract, quote_from_history
 from technical_engine import HEURISTIC_VERSION, evaluate_heuristic
 from signal_fusion import FUSION_VERSION, FusionInput, fuse_signal
+from portfolio_status import classify_portfolio_position
 
 
 def _is_leveraged_etf(ticker: str) -> bool:
@@ -32,17 +33,37 @@ def analyze_ticker_strategy(
 
         if df is None or len(df) < 50:
             if quote_override and quote_override.get("price") is not None:
+                price = round(float(quote_override["price"]), 2)
+                pl_pct = ((price / entry_price) - 1) * 100 if entry_price > 0 else None
+                is_leveraged = _is_leveraged_etf(ticker_symbol)
+                position_status = classify_portfolio_position(
+                    pl_pct=pl_pct, signal_state="SIN SEÑAL", signal_eligible=False,
+                    data_quality=float(quote_override.get("quality_score", 0.0)),
+                    is_leveraged=is_leveraged,
+                    quote_adjusted=bool(quote_override.get("adjusted", False)),
+                )
                 return {
                     "ticker": ticker_symbol,
-                    "price": round(float(quote_override["price"]), 2),
+                    "price": price,
                     "entry_price": entry_price,
                     "qty": qty,
+                    "pl_pct": round(pl_pct, 2) if pl_pct is not None else None,
                     "quote": dict(quote_override),
                     "data_quality": quote_override.get("quality_score", 0.0),
                     "signal_eligible": False,
+                    "is_leveraged": is_leveraged,
+                    "portfolio_status": position_status,
+                    "pnl_reliable": position_status["pnl_reliable"],
                     "error": "Sin datos históricos suficientes para emitir veredicto",
                 }
-            return {"ticker": ticker_symbol, "error": "Sin datos históricos suficientes"}
+            position_status = classify_portfolio_position(
+                pl_pct=None, signal_state="SIN SEÑAL", signal_eligible=False,
+                data_quality=0.0, is_leveraged=_is_leveraged_etf(ticker_symbol),
+                quote_adjusted=False,
+            )
+            return {"ticker": ticker_symbol, "entry_price": entry_price, "qty": qty,
+                    "portfolio_status": position_status, "pnl_reliable": False,
+                    "error": "Sin datos históricos suficientes"}
 
         close  = df['Close'].dropna()
         quote = quote_from_history(
@@ -103,6 +124,13 @@ def analyze_ticker_strategy(
         verdict = fusion['state']
         reasons.extend(fusion['factors_for'])
         reasons.extend(fusion['factors_against'])
+        position_status = classify_portfolio_position(
+            pl_pct=pl_pct, signal_state=verdict,
+            signal_eligible=verdict != "SIN SEÑAL",
+            data_quality=float(quote.get('quality_score', 0.0)),
+            is_leveraged=is_leveraged,
+            quote_adjusted=bool(quote.get('adjusted', False)),
+        )
 
         return {
             "ticker":       ticker_symbol,
@@ -124,6 +152,8 @@ def analyze_ticker_strategy(
             "quote":        quote,
             "data_quality": quote.get("quality_score", 0.0),
             "signal_eligible": verdict != "SIN SEÑAL",
+            "portfolio_status": position_status,
+            "pnl_reliable": position_status["pnl_reliable"],
             "error":        None
         }
     except Exception as e:

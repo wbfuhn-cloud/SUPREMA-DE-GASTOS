@@ -625,10 +625,18 @@ async function analyzePortfolio() {
             data.results.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.dataset.portfolioAnalyzed = 'true';
-                if (row.error) {
+                const positionStatus = row.portfolio_status || {
+                    color: 'yellow', label: 'ESPERAR / VALIDAR',
+                    reason: row.error || 'No existe evidencia suficiente.', confidence: 'insuficiente'
+                };
+                tr.classList.add(`portfolio-row-${positionStatus.color || 'yellow'}`);
+                if (row.error && !hasNumericValue(row.price)) {
                     tr.innerHTML = `
                         <td><strong style="font-size:15px; color:var(--text-primary);">${escapeHtml(row.ticker)}</strong></td>
-                        <td colspan="4" style="color:var(--danger-color); font-weight:600;">${escapeHtml(row.error)}</td>
+                        <td><strong>${escapeHtml(row.qty ?? '—')}</strong> acc<br><small>@ $${hasNumericValue(row.entry_price) ? Number(row.entry_price).toFixed(2) : '—'} USD</small></td>
+                        <td style="color:var(--text-secondary);">N/D</td>
+                        <td><span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span><small class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}</small></td>
+                        <td style="color:var(--text-secondary);">No calculable</td>
                         <td style="text-align:center;">
                             <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
                         </td>
@@ -646,14 +654,17 @@ async function analyzePortfolio() {
                     const plColor = plPct >= 0 ? "var(--success-color)" : "var(--danger-color)";
                     const plSign = plPct >= 0 ? "+" : "";
 
-                    if (row.pl_val !== undefined && row.entry_price > 0 && row.qty > 0) {
+                    if (row.pl_val !== undefined && row.entry_price > 0 && row.qty > 0 && row.pnl_reliable !== false) {
                         totalPlUsd += plVal;
                         totalCostUsd += (Number(row.entry_price) * Number(row.qty));
                         hasValidCost = true;
                     }
 
                     const levFlag = row.is_leveraged ? ' <span class="badge evitar" style="font-size:10px; margin-left:6px; letter-spacing:0.4px;">APALANCADO</span>' : '';
-                    const reasonsList = Array.isArray(row.reasons) ? row.reasons.join(" • ") : "";
+                    const reasons = Array.isArray(row.reasons) ? [...row.reasons] : [];
+                    if (row.error) reasons.unshift(row.error);
+                    const reasonsList = reasons.join(" • ");
+                    const pnlValidationLabel = row.pnl_reliable === false ? '<span class="pnl-unverified">NO VALIDADO</span>' : '';
 
                     tr.innerHTML = `
                         <td>
@@ -672,7 +683,9 @@ async function analyzePortfolio() {
                         </td>
                         <td>
                             <div style="display:flex; flex-direction:column; gap:4px; max-width:320px;">
-                                <span class="badge ${badgeClass}" style="width:fit-content; font-size:11px; padding:4px 10px; letter-spacing:0.3px;">${escapeHtml(row.verdict || 'EVALUANDO')}</span>
+                                <span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span>
+                                <span class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}${positionStatus.confidence ? ` · Confianza ${escapeHtml(positionStatus.confidence)}` : ''}</span>
+                                ${row.verdict ? `<span class="badge ${badgeClass}" style="width:fit-content;font-size:10px;padding:3px 8px;">Motor: ${escapeHtml(row.verdict)}</span>` : ''}
                                 ${reasonsList ? `<span style="font-size:11px; color:var(--text-secondary); line-height:1.35; white-space:normal;" title="${escapeHtml(reasonsList)}">${escapeHtml(reasonsList)}</span>` : ''}
                             </div>
                         </td>
@@ -682,6 +695,7 @@ async function analyzePortfolio() {
                                 ${plSign}$${plVal.toFixed(2)} USD
                                 ${plMxn ? ` <span style="font-weight:500; opacity:0.8;">(${plSign}$${plMxn.toFixed(2)} MXN)</span>` : ''}
                             </div>
+                            ${pnlValidationLabel}
                         </td>
                         <td style="text-align:center;">
                             <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar ${escapeHtml(row.ticker)} de la cartera" style="padding:8px 12px; border-radius:10px;">

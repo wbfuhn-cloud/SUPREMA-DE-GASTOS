@@ -830,6 +830,16 @@ body {
     vertical-align: middle;
 }
 
+.portfolio-row-green { box-shadow: inset 4px 0 0 var(--success-color); }
+.portfolio-row-yellow { box-shadow: inset 4px 0 0 var(--warning-color); }
+.portfolio-row-red { box-shadow: inset 4px 0 0 var(--danger-color); background: rgba(239, 68, 68, .055); }
+.portfolio-signal { display: inline-flex; width: fit-content; padding: 5px 10px; border: 1px solid currentColor; border-radius: 999px; font-size: 10px; font-weight: 900; letter-spacing: .45px; }
+.portfolio-signal.green { color: var(--success-color); background: var(--success-bg); }
+.portfolio-signal.yellow { color: var(--warning-color); background: rgba(245, 158, 11, .10); }
+.portfolio-signal.red { color: var(--danger-color); background: var(--danger-bg); }
+.portfolio-signal-reason { display: block; color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
+.pnl-unverified { display: inline-block; margin-top: 5px; padding: 2px 6px; border-radius: 6px; color: var(--warning-color); background: rgba(245, 158, 11, .12); font-size: 9px; font-weight: 900; letter-spacing: .5px; }
+
 .maturity-banner {
     padding: 20px 24px;
     border-left: 5px solid var(--warning-color);
