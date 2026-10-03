@@ -34,6 +34,7 @@ from production_controls import (KillSwitch, OperationalMetrics, RateLimiter,
                                  authorized_write, correlation_id)
 from release_governance import current_project_gate
 from maturity_status import build_maturity_status
+from auto_scan_schedule import auto_scan_due, next_nyse_open, nyse_market_is_open
 from error_taxonomy import ERROR_CATEGORIES, ErrorRegistry, sanitize_public_error
 fetch_stock_data = process_single_ticker = None
 get_cache_stats = clear_cache = get_ticker_cache_stats = clear_ticker_cache = None
@@ -188,6 +189,13 @@ SCAN_STATE: dict = {
     'stop_event':     threading.Event(),
 }
 
+AUTO_SCAN_STATE: dict = {
+    'enabled': os.environ.get('ENABLE_BOLSA_AUTO_SCAN', '1').strip().lower() not in {'0', 'false', 'no'},
+    'scheduler_active': False,
+    'interval_minutes': max(5, int(os.environ.get('BOLSA_AUTO_SCAN_INTERVAL_MINUTES', '60'))),
+    'last_started_utc': None,
+}
+
 SCAN_CACHE_FILE = os.path.join(root_dir, 'database', 'last_scan_results.json')
 
 def _load_scan_persistence():
@@ -248,11 +256,8 @@ except Exception as e:
 
 # ─── Auto-escaneo ────────────────────────────────────────────────────────────
 def _is_market_hours(now: datetime) -> bool:
-    """Retorna True si el mercado NYSE está (aprox.) abierto."""
-    if now.weekday() >= 5:          # sábado / domingo
-        return False
-    h, m = now.hour, now.minute
-    return (h == 8 and m >= 30) or (9 <= h < 13) or (h == 13 and m <= 30)
+    """Retorna True durante la sesión NYSE, con zona horaria, DST y festivos."""
+    return nyse_market_is_open(now)
 
 
 def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str = 'all'):
@@ -381,19 +386,27 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
 
 
 def run_auto_scan_loop():
-    """Ejecuta un escaneo automático cada hora durante horario de mercado."""
+    """Programador permanente; escanea sólo durante sesiones NYSE válidas."""
+    AUTO_SCAN_STATE['scheduler_active'] = True
     logger.info("[AI] Hilo de auto-escaneo iniciado.")
     _time.sleep(30)   # respirar al inicio
 
     while True:
         try:
-            if _is_market_hours(datetime.now()) and not SCAN_STATE['is_scanning'] and fetch_stock_data:
+            now = datetime.now(timezone.utc)
+            last_started = AUTO_SCAN_STATE.get('last_started_utc')
+            if isinstance(last_started, str):
+                last_started = datetime.fromisoformat(last_started.replace('Z', '+00:00'))
+            due = auto_scan_due(now, last_started, AUTO_SCAN_STATE['interval_minutes'])
+            if (AUTO_SCAN_STATE['enabled'] and due
+                    and not SCAN_STATE['is_scanning'] and fetch_stock_data):
                 logger.info("[SCAN] Ejecutando escaneo programado...")
+                AUTO_SCAN_STATE['last_started_utc'] = now.isoformat().replace('+00:00', 'Z')
                 threading.Thread(target=_run_scan_worker, daemon=True).start()
         except Exception as e:
             logger.error(f"Error en loop de auto-escaneo: {e}")
 
-        _time.sleep(3600)   # revisar cada hora
+        _time.sleep(60)   # programador activo siempre; el intervalo evita duplicados
 
 
 def run_prediction_recovery_loop():
@@ -972,12 +985,20 @@ def scan_status():
             if 'Price_MXN' in r and r.get('Price'):
                 er = round(r['Price_MXN'] / r['Price'], 4)
                 break
+    now_utc = datetime.now(timezone.utc)
+    market_open = _is_market_hours(now_utc)
     return jsonify({
         'is_scanning':   SCAN_STATE['is_scanning'],
         'progress':      SCAN_STATE['progress'],
         'message':       SCAN_STATE['message'],
         'results_count': len(SCAN_STATE['results']),
         'exchange_rate': er,
+        'automation': {
+            **AUTO_SCAN_STATE,
+            'market_open': market_open,
+            'schedule': 'NYSE 09:30-16:00 America/New_York; respeta festivos y medias sesiones',
+            'next_market_open_utc': None if market_open else next_nyse_open(now_utc).isoformat().replace('+00:00', 'Z'),
+        },
     })
 
 
@@ -1302,7 +1323,7 @@ def run_server(host: str = '0.0.0.0', port: int = 5050, debug: bool = False,
     logger.warning(f"[TUNNEL] Servidor iniciado en http://{host}:{port}")
     
     if start_jobs is None:
-        start_jobs = os.environ.get('ENABLE_BOLSA_BACKGROUND_TASKS', '0') == '1'
+        start_jobs = os.environ.get('ENABLE_BOLSA_BACKGROUND_TASKS', '1').strip().lower() not in {'0', 'false', 'no'}
     if start_jobs:
         start_background_tasks()
     else:

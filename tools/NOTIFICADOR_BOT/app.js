@@ -159,13 +159,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     // 3. Cargar estado de escaneo
     await checkScanStatus();
     
-    // 4. Si el auto-scan está activo en la UI pero el servidor está libre y sin datos, sugerir inicio
-    if (autoScanChk && autoScanChk.checked && !isScanning && allResults.length === 0) {
-        console.log("Auto-Scan activo y sin datos: Iniciando escaneo inicial...");
-        startScan();
-    }
-    
-    // 4. Cargar portafolio desde la API (sincronizado con el bot)
+    // 4. El programador del servidor decide cuándo escanear para no contaminar
+    // la evidencia con datos fuera de sesión.
+    // Cargar portafolio desde la API (sincronizado con el bot)
     try {
         const res = await fetch(`${API_URL}/portfolio/config`);
         const data = await res.json();
@@ -811,6 +807,15 @@ async function checkScanStatus() {
         
         if (progressBar) progressBar.style.width = `${(data.progress || 0) * 100}%`;
         if (progressText) progressText.textContent = data.message || '';
+        const automation = data.automation || {};
+        const autoLabel = document.getElementById('auto-scan-label');
+        if (autoScanChk) autoScanChk.checked = automation.enabled !== false;
+        if (autoLabel) {
+            const state = automation.scheduler_active ? 'ACTIVO' : 'INICIANDO';
+            const market = automation.market_open ? 'mercado abierto' : 'esperando apertura';
+            autoLabel.innerHTML = `<i class="fa-solid fa-robot"></i> Auto-Scan ${state} · ${market}`;
+            autoLabel.title = automation.schedule || 'Programador automático del servidor';
+        }
         
         if (!data.is_scanning && isScanning) {
             // Scan just finished
