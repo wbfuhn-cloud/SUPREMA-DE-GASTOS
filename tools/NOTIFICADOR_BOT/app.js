@@ -644,7 +644,10 @@ async function analyzePortfolio() {
                 tr.dataset.portfolioAnalyzed = 'true';
                 const positionStatus = row.portfolio_status || {
                     color: 'yellow', label: 'ESPERAR / VALIDAR',
-                    reason: row.error || 'No existe evidencia suficiente.', confidence: 'insuficiente'
+                    reason: row.error || 'No existe evidencia suficiente.',
+                    summary: 'ESPERA: faltan datos para emitir una acción responsable.',
+                    monitoring_note: 'Actualizaré el resumen cuando existan datos confiables.',
+                    confidence: 'insuficiente'
                 };
                 tr.classList.add(`portfolio-row-${positionStatus.color || 'yellow'}`);
                 if (row.error && !hasNumericValue(row.price)) {
@@ -652,7 +655,7 @@ async function analyzePortfolio() {
                         <td><strong style="font-size:15px; color:var(--text-primary);">${escapeHtml(row.ticker)}</strong></td>
                         <td><strong>${escapeHtml(row.qty ?? '—')}</strong> acc<br><small>@ $${hasNumericValue(row.entry_price) ? Number(row.entry_price).toFixed(2) : '—'} USD</small></td>
                         <td style="color:var(--text-secondary);">N/D</td>
-                        <td><span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span><small class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}</small></td>
+                        <td><span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span><strong class="portfolio-action-summary">${escapeHtml(positionStatus.summary || positionStatus.reason)}</strong><small class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}</small></td>
                         <td style="color:var(--text-secondary);">No calculable</td>
                         <td style="text-align:center;">
                             <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
@@ -701,7 +704,9 @@ async function analyzePortfolio() {
                         <td>
                             <div style="display:flex; flex-direction:column; gap:4px; max-width:320px;">
                                 <span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span>
+                                <strong class="portfolio-action-summary">${escapeHtml(positionStatus.summary || positionStatus.reason)}</strong>
                                 <span class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}${positionStatus.confidence ? ` · Confianza ${escapeHtml(positionStatus.confidence)}` : ''}</span>
+                                ${positionStatus.monitoring_note ? `<span class="portfolio-monitoring-note">${escapeHtml(positionStatus.monitoring_note)}</span>` : ''}
                                 ${row.verdict ? `<span class="badge ${badgeClass}" style="width:fit-content;font-size:10px;padding:3px 8px;">Motor: ${escapeHtml(row.verdict)}</span>` : ''}
                                 ${reasonsList ? `<span style="font-size:11px; color:var(--text-secondary); line-height:1.35; white-space:normal;" title="${escapeHtml(reasonsList)}">${escapeHtml(reasonsList)}</span>` : ''}
                             </div>

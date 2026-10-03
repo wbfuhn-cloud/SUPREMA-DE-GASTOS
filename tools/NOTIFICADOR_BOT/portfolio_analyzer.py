@@ -4,6 +4,7 @@ Usa la API directa de Yahoo v8 (sin yfinance) para evitar errores 401.
 """
 from pathlib import Path
 import os
+import math
 import pandas as pd
 
 from stock_scanner import (
@@ -77,6 +78,18 @@ def analyze_ticker_strategy(
                 raise ValueError("La cotización canónica no corresponde al ticker")
             quote = dict(quote_override)
         price  = float(quote["price"])
+        weekly_change_pct = None
+        if len(close) >= 6 and float(close.iloc[-6]) > 0:
+            weekly_change_pct = ((price / float(close.iloc[-6])) - 1.0) * 100.0
+
+        upside_scenario_3m_pct = None
+        returns_3m = close.pct_change().dropna().tail(63)
+        if len(returns_3m) >= 20:
+            reference_index = max(0, len(close) - 64)
+            reference_price = float(close.iloc[reference_index])
+            momentum_3m = ((price / reference_price) - 1.0) * 100.0 if reference_price > 0 else 0.0
+            volatility_3m = float(returns_3m.std()) * math.sqrt(63) * 100.0
+            upside_scenario_3m_pct = min(40.0, max(0.0, momentum_3m) + max(0.0, volatility_3m))
         is_leveraged = _is_leveraged_etf(ticker_symbol)
         heuristic = evaluate_heuristic(df, quote=quote, is_leveraged=is_leveraged)
         rsi = heuristic["indicators"].get("rsi")
@@ -130,6 +143,9 @@ def analyze_ticker_strategy(
             data_quality=float(quote.get('quality_score', 0.0)),
             is_leveraged=is_leveraged,
             quote_adjusted=bool(quote.get('adjusted', False)),
+            weekly_change_pct=weekly_change_pct,
+            trend_state=heuristic["horizons"]["trend"].get("state"),
+            upside_scenario_3m_pct=upside_scenario_3m_pct,
         )
 
         return {
@@ -138,6 +154,8 @@ def analyze_ticker_strategy(
             "entry_price":  entry_price,
             "qty":          qty,
             "pl_pct":       round(pl_pct, 2),
+            "weekly_change_pct": round(weekly_change_pct, 2) if weekly_change_pct is not None else None,
+            "upside_scenario_3m_pct": round(upside_scenario_3m_pct, 2) if upside_scenario_3m_pct is not None else None,
             "rsi":          round(rsi, 2) if rsi is not None else None,
             "verdict":      verdict,
             "reasons":      reasons,

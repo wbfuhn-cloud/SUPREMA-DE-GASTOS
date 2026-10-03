@@ -841,6 +841,8 @@ body {
 .portfolio-signal.yellow { color: var(--warning-color); background: rgba(245, 158, 11, .10); }
 .portfolio-signal.red { color: var(--danger-color); background: var(--danger-bg); }
 .portfolio-signal-reason { display: block; color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
+.portfolio-action-summary { display: block; color: var(--text-primary); font-size: 12px; line-height: 1.45; white-space: normal; }
+.portfolio-monitoring-note { display: block; padding: 7px 9px; border-left: 3px solid var(--primary-color); border-radius: 6px; background: rgba(0,82,255,.08); color: var(--text-secondary); font-size: 11px; line-height: 1.4; white-space: normal; }
 .pnl-unverified { display: inline-block; margin-top: 5px; padding: 2px 6px; border-radius: 6px; color: var(--warning-color); background: rgba(245, 158, 11, .12); font-size: 9px; font-weight: 900; letter-spacing: .5px; }
 
 .maturity-banner {
