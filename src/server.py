@@ -33,6 +33,7 @@ sys.path.append(os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT'))
 from production_controls import (KillSwitch, OperationalMetrics, RateLimiter,
                                  authorized_write, correlation_id)
 from release_governance import current_project_gate
+from maturity_status import build_maturity_status
 from error_taxonomy import ERROR_CATEGORIES, ErrorRegistry, sanitize_public_error
 fetch_stock_data = process_single_ticker = None
 get_cache_stats = clear_cache = get_ticker_cache_stats = clear_ticker_cache = None
@@ -1020,6 +1021,24 @@ def bolsa_release_status():
     return jsonify({'status': 'ok', 'release': current_project_gate()})
 
 
+@app.route('/api/bolsa/maturity', methods=['GET'])
+def bolsa_maturity_status():
+    if not paper_ledger or not phase9_approval_fn:
+        return jsonify({'status': 'error', 'message': 'Estado de madurez no disponible'}), 503
+    metrics = paper_ledger.metrics()
+    paper_gate = phase9_approval_fn(
+        metrics, availability=None, live_backtest_deviation=None,
+        net_expected_value=None, drawdown_within_limit=None,
+    )
+    maturity = build_maturity_status(
+        paper_metrics=metrics,
+        paper_gate=paper_gate,
+        release_gate=current_project_gate(),
+        scan_results=SCAN_STATE.get('results', []),
+    )
+    return jsonify({'status': 'ok', 'maturity': maturity})
+
+
 @app.route('/api/bolsa/operations/kill-switch', methods=['POST'])
 def set_operations_kill_switch():
     data = request.get_json(silent=True) or {}
@@ -1200,7 +1219,7 @@ def update_portfolio_item():
     return jsonify({'status': 'ok'})
 
 
-@app.route('/api/portfolio/analyze', methods=['POST'])
+@app.route('/api/portfolio/analyze', methods=['GET', 'POST'])
 def analyze_portfolio_api():
     if not config_mgr: return jsonify({'status': 'error'}), 503
     

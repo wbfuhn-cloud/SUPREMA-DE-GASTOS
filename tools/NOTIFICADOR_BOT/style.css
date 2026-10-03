@@ -830,6 +830,39 @@ body {
     vertical-align: middle;
 }
 
+.maturity-banner {
+    padding: 20px 24px;
+    border-left: 5px solid var(--warning-color);
+    background: linear-gradient(135deg, rgba(245, 158, 11, .10), var(--bg-panel) 48%);
+}
+
+.maturity-banner[data-level="SOLIDO"] { border-left-color: var(--success-color); }
+.maturity-banner[data-level="CANDIDATO"] { border-left-color: #60a5fa; }
+.maturity-banner[data-level="EXPERIMENTAL"] { border-left-color: var(--danger-color); }
+
+.maturity-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.maturity-heading h2 { margin: 3px 0 0; font-size: 20px; color: var(--text-primary); }
+.maturity-kicker { color: var(--text-secondary); font-size: 10px; font-weight: 800; letter-spacing: 1.3px; }
+.maturity-solidity { padding: 8px 13px; border: 1px solid currentColor; border-radius: 999px; color: var(--warning-color); font-size: 12px; font-weight: 800; }
+.maturity-banner[data-level="SOLIDO"] .maturity-solidity { color: var(--success-color); }
+.maturity-banner[data-level="CANDIDATO"] .maturity-solidity { color: #60a5fa; }
+.maturity-banner[data-level="EXPERIMENTAL"] .maturity-solidity { color: var(--danger-color); }
+
+.maturity-grid { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)) minmax(260px, 2fr); gap: 10px; }
+.maturity-grid > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 12px 14px; border-radius: 12px; background: rgba(148, 163, 184, .08); }
+.maturity-grid span { color: var(--text-secondary); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+.maturity-grid strong { color: var(--text-primary); font-size: 13px; overflow-wrap: anywhere; }
+.maturity-grid small { color: var(--text-secondary); line-height: 1.35; }
+.maturity-next { border: 1px solid rgba(245, 158, 11, .25); }
+.maturity-notice { margin: 12px 0 0; color: var(--warning-color); font-size: 11px; font-weight: 700; }
+
 .toast-region {
     position: fixed;
     right: 20px;
@@ -930,6 +963,7 @@ body {
 .financial-disclaimer { color: var(--warning-color); font-size: 12px; font-weight: 700; }
 
 @media (max-width: 640px) {
-    .history-filters, .transparency-grid { grid-template-columns: 1fr; }
+    .history-filters, .transparency-grid, .maturity-grid { grid-template-columns: 1fr; }
+    .maturity-heading { align-items: flex-start; flex-direction: column; }
 }
 
