@@ -67,7 +67,7 @@ body {
     background-image: 
         radial-gradient(at 10% 10%, rgba(0, 82, 255, 0.12) 0px, transparent 50%),
         radial-gradient(at 90% 90%, rgba(86, 49, 232, 0.12) 0px, transparent 50%);
-    background-attachment: fixed;
+    background-attachment: scroll;
     color: var(--text-primary);
     min-height: 100vh;
     overflow-x: hidden;
@@ -129,9 +129,9 @@ body {
 
 /* Glass Panels GBM Style (v2.7.1: filtro explícito, sin var(--glass-blur) que choca con flux_theme) */
 .glass-panel {
-    background: var(--bg-panel);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    background: var(--bg-panel-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     border: 1px solid var(--glass-border);
     border-radius: var(--card-radius);
     box-shadow: var(--shadow-gbm);
@@ -432,6 +432,9 @@ body {
     transition: var(--transition-fast);
     position: relative;
     overflow: hidden;
+    contain: layout paint style;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 260px;
 }
 
 .gbm-stock-card:hover {
@@ -971,6 +974,32 @@ body {
 .history-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: end; padding: 0 15px 15px; }
 .history-filters label { display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: 12px; }
 .financial-disclaimer { color: var(--warning-color); font-size: 12px; font-weight: 700; }
+
+/* Rendimiento de desplazamiento: no pintar secciones lejanas ni recalcular
+   sombras y transiciones mientras el contenedor principal se mueve. */
+.page-content {
+    overscroll-behavior-y: contain;
+    scroll-behavior: auto;
+}
+
+.maturity-banner,
+.tables-section,
+.portfolio-section {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 620px;
+}
+
+html.is-scrolling .page-content .glass-panel,
+html.is-scrolling .page-content .gbm-stock-card {
+    box-shadow: none !important;
+    transition: none !important;
+}
+
+html.is-scrolling .page-content *,
+html.is-scrolling .page-content *::before,
+html.is-scrolling .page-content *::after {
+    animation-play-state: paused !important;
+}
 
 @media (max-width: 640px) {
     .history-filters, .transparency-grid, .maturity-grid { grid-template-columns: 1fr; }

@@ -73,6 +73,21 @@ let autoScanInterval = null;
 let allResults = [];
 let selectedTickerData = null;
 
+// El documento usa .page-content como scroller. Durante el movimiento se
+// suspenden transiciones y sombras costosas; se restauran al quedar inactivo.
+const pageScroller = document.querySelector('.page-content');
+let scrollIdleTimer = null;
+if (pageScroller) {
+    pageScroller.addEventListener('scroll', () => {
+        document.documentElement.classList.add('is-scrolling');
+        if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
+        scrollIdleTimer = setTimeout(() => {
+            document.documentElement.classList.remove('is-scrolling');
+            scrollIdleTimer = null;
+        }, 120);
+    }, { passive: true });
+}
+
 function hasNumericValue(value) {
     return value !== null && value !== undefined && Number.isFinite(Number(value));
 }
@@ -806,7 +821,7 @@ async function removePortfolioItem(ticker) {
 }
 
 function startStatusPolling() {
-    if (statusInterval) clearInterval(statusInterval);
+    if (statusInterval) return;
     statusInterval = setInterval(checkScanStatus, 1000);
 }
 
@@ -831,6 +846,7 @@ async function checkScanStatus() {
             // Scan just finished
             isScanning = false;
             clearInterval(statusInterval);
+            statusInterval = null;
             btnStart.disabled = false;
             btnStop.disabled = true;
             fetchResults();
