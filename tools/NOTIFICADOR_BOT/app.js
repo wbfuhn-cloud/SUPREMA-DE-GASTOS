@@ -169,6 +169,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             throw new Error(data.message || `HTTP ${res.status}`);
         }
         renderPortfolioSnapshot(data.portfolio || {});
+        if (data.sync && data.sync.backend === 'cloud' && !data.sync.synchronized) {
+            showToast('Portafolio cargado desde respaldo local; la nube no está disponible.', 'warning');
+        }
     } catch (e) {
         console.error("Error cargando portafolio:", e);
     }
@@ -558,7 +561,10 @@ async function handleAddPortfolio() {
         portTicker.value = "";
         portPrice.value = "";
         await analyzePortfolio();
-        showToast(`${ticker} quedó guardado en el portafolio.`, "success");
+        const cloudOk = data.sync && data.sync.synchronized;
+        showToast(cloudOk
+            ? `${ticker} quedó guardado y sincronizado en la nube.`
+            : `${ticker} quedó guardado sólo en este dispositivo.`, cloudOk ? "success" : "warning");
     } catch (e) {
         console.error("Error adding to portfolio", e);
         showToast(`No fue posible guardar ${ticker}.`, "error");
@@ -786,9 +792,13 @@ async function removePortfolioItem(ticker) {
                 ticker: ticker 
             })
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
         analyzePortfolio();
-        showToast(`${ticker} se eliminó del portafolio.`, "success");
+        const cloudOk = data.sync && data.sync.synchronized;
+        showToast(cloudOk
+            ? `${ticker} se eliminó y el cambio se sincronizó en la nube.`
+            : `${ticker} se eliminó sólo en este dispositivo.`, cloudOk ? "success" : "warning");
     } catch (e) {
         console.error("Error removing portfolio item", e);
         showToast(`No fue posible eliminar ${ticker}.`, "error");

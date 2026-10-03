@@ -199,7 +199,7 @@ def analyze_portfolio(portfolio_data, quote_overrides: dict | None = None) -> li
     return results
 
 
-def get_portfolio_summary() -> str:
+def get_portfolio_summary(portfolio_data=None) -> str:
     """Genera resumen textual del portafolio para Telegram."""
     import json
     from datetime import datetime
@@ -207,8 +207,8 @@ def get_portfolio_summary() -> str:
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     config_path = os.path.join(root_dir, 'visor_config.json')
 
-    portfolio = {}
-    if os.path.exists(config_path):
+    portfolio = {} if portfolio_data is None else portfolio_data
+    if portfolio_data is None and os.path.exists(config_path):
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)

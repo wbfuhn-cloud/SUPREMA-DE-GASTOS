@@ -37,11 +37,13 @@ from maturity_status import build_maturity_status
 from auto_scan_schedule import auto_scan_due, next_nyse_open, nyse_market_is_open
 from error_taxonomy import ERROR_CATEGORIES, ErrorRegistry, sanitize_public_error
 from notification_config import resolve_telegram_chat_id
+from portfolio_sync import PortfolioSync
 fetch_stock_data = process_single_ticker = None
 get_cache_stats = clear_cache = get_ticker_cache_stats = clear_ticker_cache = None
 calculate_position_size = analyze_portfolio = None
 get_learner = get_ml_predictor = None
 config_mgr = None
+portfolio_sync = None
 paper_ledger = paper_protocol = phase9_approval_fn = None
 signal_explanation_fn = adaptive_ai_status_fn = filter_history_fn = None
 _visor_loaded = False
@@ -52,7 +54,7 @@ def _ensure_visor_loaded():
     """Carga pandas/sklearn y el motor bursátil solo cuando se usa Bolsa."""
     global _visor_loaded, visor_import_error, fetch_stock_data, process_single_ticker
     global get_cache_stats, clear_cache, get_ticker_cache_stats, clear_ticker_cache
-    global calculate_position_size, analyze_portfolio, get_learner, get_ml_predictor, config_mgr
+    global calculate_position_size, analyze_portfolio, get_learner, get_ml_predictor, config_mgr, portfolio_sync
     global paper_ledger, paper_protocol, phase9_approval_fn
     global signal_explanation_fn, adaptive_ai_status_fn, filter_history_fn
     if _visor_loaded:
@@ -77,6 +79,12 @@ def _ensure_visor_loaded():
             calculate_position_size, analyze_portfolio = _position, _analyze
             get_learner, get_ml_predictor = _learner, _predictor
             config_mgr = ConfigManager()
+            portfolio_sync = PortfolioSync(config_mgr, db_manager)
+            portfolio, sync_meta = portfolio_sync.load(migrate_local=True)
+            logger.info(
+                "Portafolio inicializado: posiciones=%d, origen=%s, sincronizado=%s",
+                len(portfolio), sync_meta.get('source'), sync_meta.get('synchronized'),
+            )
             paper_protocol = freeze_protocol({
                 'fusion_version': FUSION_VERSION,
                 'heuristic_version': HEURISTIC_VERSION,
@@ -345,7 +353,8 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
             try:
                 import os, requests
                 from portfolio_analyzer import get_portfolio_summary
-                summary_msg = get_portfolio_summary()
+                synced_portfolio, _sync_meta = portfolio_sync.load(migrate_local=True)
+                summary_msg = get_portfolio_summary(synced_portfolio)
                 
                 results = SCAN_STATE['results']
                 if results:
@@ -459,7 +468,8 @@ def run_live_alert_loop():
                     if src == 'watchlist':
                         tickers_to_check.update(config_mgr.get_watchlist())
                     elif src == 'portfolio':
-                        tickers_to_check.update(config_mgr.get_portfolio().keys())
+                        synced_portfolio, _sync_meta = portfolio_sync.load(migrate_local=True)
+                        tickers_to_check.update(synced_portfolio.keys())
                     else:
                         tickers_to_check.update(get_tickers_by_source(src))
                 except Exception as e:
@@ -1194,7 +1204,7 @@ def calc_risk():
 
 @app.route('/api/portfolio/config', methods=['GET', 'POST'])
 def portfolio_config():
-    if not config_mgr:
+    if not config_mgr or not portfolio_sync:
         return jsonify({'status': 'error', 'message': 'ConfigManager no disponible'}), 503
     
     if request.method == 'POST':
@@ -1204,8 +1214,11 @@ def portfolio_config():
         if data.get('action') == 'remove':
             ticker = data.get('ticker')
             if ticker:
-                config_mgr.remove_from_portfolio(ticker)
-                return jsonify({'status': 'ok'})
+                portfolio, sync = portfolio_sync.remove(ticker)
+                status_code = 200 if sync.get('synchronized') or sync.get('backend') != 'cloud' else 503
+                return jsonify({'status': 'ok' if status_code == 200 else 'error',
+                                'portfolio': portfolio, 'sync': sync,
+                                'message': sync.get('message', '')}), status_code
 
         # Soporte para lista (retrocompatibilidad) o dict
         new_portfolio = data.get('portfolio', {})
@@ -1213,31 +1226,44 @@ def portfolio_config():
             # Convertir lista de tickers a dict
             new_portfolio = {t.upper(): {'qty': 0, 'avg_price': 0} for t in new_portfolio}
         
-        config_mgr.config['portfolio'] = new_portfolio
-        config_mgr.save_config()
-        return jsonify({'status': 'ok'})
+        portfolio, sync = portfolio_sync.save(new_portfolio)
+        status_code = 200 if sync.get('synchronized') or sync.get('backend') != 'cloud' else 503
+        return jsonify({'status': 'ok' if status_code == 200 else 'error',
+                        'portfolio': portfolio, 'sync': sync,
+                        'message': sync.get('message', '')}), status_code
         
-    return jsonify({'portfolio': config_mgr.get_portfolio()})
+    portfolio, sync = portfolio_sync.load(migrate_local=True)
+    return jsonify({'portfolio': portfolio, 'sync': sync})
 
 
 @app.route('/api/portfolio/update', methods=['POST'])
 def update_portfolio_item():
-    if not config_mgr: return jsonify({'status': 'error'}), 503
+    if not config_mgr or not portfolio_sync: return jsonify({'status': 'error'}), 503
     data = request.get_json(force=True) or {}
     ticker = data.get('ticker')
     qty = data.get('qty', 0)
     price = data.get('price', 0)
     if not ticker: return jsonify({'status': 'error', 'message': 'Ticker faltante'}), 400
-    
-    config_mgr.update_portfolio_item(ticker, qty, price)
-    return jsonify({'status': 'ok'})
+    try:
+        qty = float(qty)
+        price = float(price)
+        if qty < 0 or price < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'status': 'error', 'message': 'Cantidad o precio inválido'}), 400
+
+    portfolio, sync = portfolio_sync.update(ticker, qty, price)
+    status_code = 200 if sync.get('synchronized') or sync.get('backend') != 'cloud' else 503
+    return jsonify({'status': 'ok' if status_code == 200 else 'error',
+                    'portfolio': portfolio, 'sync': sync,
+                    'message': sync.get('message', '')}), status_code
 
 
 @app.route('/api/portfolio/analyze', methods=['GET', 'POST'])
 def analyze_portfolio_api():
     if not config_mgr: return jsonify({'status': 'error'}), 503
     
-    portfolio = config_mgr.get_portfolio()
+    portfolio, sync = portfolio_sync.load(migrate_local=True)
     try:
         from portfolio_analyzer import analyze_portfolio
         quote_overrides = {}
@@ -1246,7 +1272,7 @@ def analyze_portfolio_api():
             if isinstance(quote, dict) and quote.get('symbol'):
                 quote_overrides[quote['symbol']] = quote
         results = analyze_portfolio(portfolio, quote_overrides=quote_overrides)
-        return jsonify({'status': 'ok', 'results': results})
+        return jsonify({'status': 'ok', 'results': results, 'sync': sync})
     except Exception as e:
         logger.error(f"Error analizando portafolio: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': sanitize_public_error(e)}), 500
