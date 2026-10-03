@@ -653,6 +653,17 @@ class AdaptiveLearner:
     def record_scan_results(self, results: list, top_n: int = 50):
         """Registra predicciones append-only y separadas por horizonte."""
         prediction_ids = self.ledger.record_scan_results(results, top_n=top_n)
+        eligible = sum(row.get("Signal_Eligible") is True for row in results)
+        quoted = sum(
+            row.get("Signal_Eligible") is True
+            and bool((row.get("Quote") or {}).get("market_timestamp"))
+            and bool((row.get("Quote") or {}).get("provider"))
+            for row in results
+        )
+        logger.info(
+            "Diagnóstico de registro: resultados=%d, elegibles=%d, cotizaciones_validas=%d.",
+            len(results), eligible, quoted,
+        )
         logger.info(f"🧠 Registradas {len(prediction_ids)} predicciones inmutables del escaneo.")
         return prediction_ids
 

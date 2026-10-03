@@ -14,6 +14,7 @@ import logging
 import sqlite3
 import math
 import hashlib
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
@@ -70,8 +71,8 @@ class StockMLPredictor:
         self.db_path = Path(db_path) if db_path else base_dir / "learner.db"
         self.model_path = Path(model_path) if model_path else base_dir / "stock_ml_model.joblib"
         
-        self.model: Optional[Pipeline] = None
-        self.experimental_model: Optional[Pipeline] = None
+        self.model: Optional[Any] = None
+        self.experimental_model: Optional[Any] = None
         self.metrics: Dict[str, Any] = {}
         self.last_trained: Optional[str] = None
         self.model_version = "unavailable"
@@ -339,6 +340,15 @@ class StockMLPredictor:
         try:
             feat_vec = self._extract_feature_vector(ticker_data)
             X_in = np.array([feat_vec], dtype=np.float64)
+            expected_features = getattr(self.model, "n_features_in_", len(FEATURE_NAMES))
+            if int(expected_features) != len(FEATURE_NAMES):
+                result["degraded_reason"] = "model_feature_contract_mismatch"
+                log.warning(
+                    "Modelo ML incompatible: esperaba %s variables y el contrato actual entrega %s.",
+                    expected_features,
+                    len(FEATURE_NAMES),
+                )
+                return result
             if self.ood_profile is None:
                 result["ood_detected"] = True
                 result["degraded_reason"] = "ood_profile_missing"
@@ -363,16 +373,21 @@ class StockMLPredictor:
             else:
                 conf = "BAJA"
 
-            # Top features for this specific prediction
-            # Since global importances represent the model, we serve the global ones as breakdown
-            gbm = self.model.named_steps['gbm']
-            f_imp = gbm.feature_importances_
-            
-            # Find the top 3 features for this instance based on value * importance
-            scaled_feat = self.model.named_steps['scaler'].transform(X_in)[0]
-            contributions = scaled_feat * f_imp
-            
-            top_indices = np.argsort(np.abs(contributions))[-3:][::-1]
+            # Los artefactos históricos pueden ser un estimador directo; los
+            # actuales normalmente son Pipeline. La explicación es compatible
+            # con ambos formatos y nunca invalida una predicción correcta.
+            named_steps = getattr(self.model, "named_steps", {})
+            estimator = named_steps.get("gbm") if named_steps else self.model
+            scaler = named_steps.get("scaler") if named_steps else None
+            f_imp = getattr(estimator, "feature_importances_", None)
+            explained_features = scaler.transform(X_in)[0] if scaler is not None else X_in[0]
+            contributions = (
+                explained_features * np.asarray(f_imp)
+                if f_imp is not None and len(f_imp) == len(FEATURE_NAMES)
+                else np.zeros(len(FEATURE_NAMES), dtype=np.float64)
+            )
+
+            top_indices = np.argsort(np.abs(contributions))[-3:][::-1] if np.any(contributions) else []
             breakdown = {}
             for idx in top_indices:
                 feature = FEATURE_NAMES[idx]
@@ -418,10 +433,13 @@ class StockMLPredictor:
 
 # Instancia singleton para fácil reutilización
 _predictor_instance: Optional[StockMLPredictor] = None
+_predictor_lock = threading.Lock()
 
 
 def get_ml_predictor() -> StockMLPredictor:
     global _predictor_instance
     if _predictor_instance is None:
-        _predictor_instance = StockMLPredictor()
+        with _predictor_lock:
+            if _predictor_instance is None:
+                _predictor_instance = StockMLPredictor()
     return _predictor_instance

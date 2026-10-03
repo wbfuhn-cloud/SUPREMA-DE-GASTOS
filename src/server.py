@@ -36,6 +36,7 @@ from release_governance import current_project_gate
 from maturity_status import build_maturity_status
 from auto_scan_schedule import auto_scan_due, next_nyse_open, nyse_market_is_open
 from error_taxonomy import ERROR_CATEGORIES, ErrorRegistry, sanitize_public_error
+from notification_config import resolve_telegram_chat_id
 fetch_stock_data = process_single_ticker = None
 get_cache_stats = clear_cache = get_ticker_cache_stats = clear_ticker_cache = None
 calculate_position_size = analyze_portfolio = None
@@ -358,13 +359,9 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
                     summary_msg += "\n\n" + "\n".join(gemas)
                 
                 token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-                chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-                if not chat_id:
-                    try:
-                        with open(os.path.join(root_dir, "data", "chat_id.txt"), "r") as f:
-                            chat_id = f.read().strip()
-                    except Exception as e:
-                        logger.warning(f"No se pudo leer chat_id.txt: {e}")
+                chat_id = resolve_telegram_chat_id(
+                    root_dir, token, os.getenv("TELEGRAM_CHAT_ID", "")
+                )
                 
                 if token and chat_id:
                     requests.post(
@@ -499,13 +496,9 @@ def run_live_alert_loop():
                     if action and not learner.has_recent_alert(ticker, action):
                         # Enviar alerta Telegram
                         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-                        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-                        if not chat_id:
-                            try:
-                                with open(os.path.join(root_dir, "data", "chat_id.txt"), "r") as f:
-                                    chat_id = f.read().strip()
-                            except Exception as e:
-                                logger.warning(f"No se pudo leer chat_id.txt: {e}")
+                        chat_id = resolve_telegram_chat_id(
+                            root_dir, token, os.getenv("TELEGRAM_CHAT_ID", "")
+                        )
                             
                         if token and chat_id:
                             import requests

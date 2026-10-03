@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import requests
+from requests.adapters import HTTPAdapter
 import logging
 import time
 from pathlib import Path
@@ -36,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 # ── Sesión HTTP con headers de navegador real (evita 401) ────────────────────
 _SESSION = requests.Session()
+_HTTP_POOL_SIZE = 64
+_HTTP_ADAPTER = HTTPAdapter(
+    pool_connections=_HTTP_POOL_SIZE,
+    pool_maxsize=_HTTP_POOL_SIZE,
+    max_retries=1,
+    pool_block=True,
+)
+_SESSION.mount('https://', _HTTP_ADAPTER)
+_SESSION.mount('http://', _HTTP_ADAPTER)
 _SESSION.headers.update({
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
