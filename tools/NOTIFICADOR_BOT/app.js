@@ -226,6 +226,7 @@ tabBtns.forEach(btn => {
         const tabId = btn.dataset.tab;
         if (!activateTab(tabId, btn)) return;
         if (tabId === 'ai-tab') {
+            startAdaptiveWorkerHeartbeat();
             await Promise.all([loadLearnerStats(), loadLearnerHistory(), loadTransparencyStatus()]);
         }
     });
@@ -343,6 +344,46 @@ async function submitStructuredFeedback(feedback) {
 if (btnFeedbackBad) btnFeedbackBad.addEventListener("click", () => submitStructuredFeedback('negative'));
 if (btnFeedbackGood) btnFeedbackGood.addEventListener("click", () => submitStructuredFeedback('positive'));
 
+let adaptiveWorkerHeartbeat = null;
+
+function updateAdaptiveWorkerBanner(state, stats = {}) {
+    const banner = document.getElementById('ai-worker-banner');
+    const stateEl = document.getElementById('ai-worker-state');
+    const detailEl = document.getElementById('ai-worker-detail');
+    const progressEl = document.getElementById('ai-worker-progress');
+    const timeEl = document.getElementById('ai-worker-time');
+    if (!banner || !stateEl || !detailEl || !progressEl || !timeEl) return;
+
+    const recommendations = Number(stats.total_recommendations || 0);
+    const pending = Number(stats.pending || 0);
+    const verified = Number(stats.verified || 0);
+    banner.dataset.state = state;
+
+    if (state === 'offline') {
+        stateEl.textContent = 'DETENIDO O SIN CONEXIÓN';
+        detailEl.textContent = 'El servidor Python no responde. Abre o reinicia el servidor para continuar el monitoreo y el aprendizaje.';
+        progressEl.textContent = 'No se pueden consultar las predicciones';
+    } else if (verified > 0) {
+        stateEl.textContent = 'APRENDIZAJE ACTIVO';
+        detailEl.textContent = 'El servidor Python está trabajando y ya tiene resultados verificados. No cierres el servidor; puedes cerrar esta pestaña.';
+        progressEl.textContent = `${recommendations} registradas · ${pending} pendientes · ${verified} verificadas`;
+    } else if (pending > 0 || recommendations > 0) {
+        stateEl.textContent = 'TRABAJANDO · ESPERANDO RESULTADOS';
+        detailEl.textContent = 'El servidor Python está siguiendo predicciones todavía abiertas. No cierres el servidor; puedes cerrar esta pestaña.';
+        progressEl.textContent = `${recommendations} registradas · ${pending} pendientes · 0 verificadas`;
+    } else {
+        stateEl.textContent = 'SERVIDOR CONECTADO · ESPERANDO PREDICCIONES';
+        detailEl.textContent = 'El proceso está disponible, pero aún no tiene predicciones auditables. Mantén abierto el servidor Python; puedes cerrar esta pestaña.';
+        progressEl.textContent = '0 registradas · 0 pendientes · 0 verificadas';
+    }
+    timeEl.textContent = `Última comprobación: ${new Date().toLocaleTimeString()}`;
+}
+
+function startAdaptiveWorkerHeartbeat() {
+    if (adaptiveWorkerHeartbeat) return;
+    adaptiveWorkerHeartbeat = setInterval(loadLearnerStats, 30000);
+}
+
 async function loadLearnerStats() {
     const accuracyEl = document.getElementById('ai-accuracy');
     const avgEl = document.getElementById('ai-avg-change');
@@ -354,6 +395,7 @@ async function loadLearnerStats() {
         const data = await res.json();
         if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
         if (data.status === 'ok') {
+            updateAdaptiveWorkerBanner('online', data.stats || {});
             const hasVerified = Number(data.stats.verified) > 0;
             accuracyEl.textContent = hasVerified && data.stats.accuracy_pct !== null ? `${data.stats.accuracy_pct}%` : 'N/D';
             
@@ -379,6 +421,7 @@ async function loadLearnerStats() {
         }
     } catch (e) {
         console.error("Error loading learner stats", e);
+        updateAdaptiveWorkerBanner('offline');
         [accuracyEl, avgEl, verifiedEl, adjustmentsEl].forEach(el => { if (el) el.textContent = 'Error'; });
         showToast("No fue posible cargar las métricas de aprendizaje.", "error");
     }
