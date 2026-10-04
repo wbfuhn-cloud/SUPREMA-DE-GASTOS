@@ -115,7 +115,7 @@ api_rate_limiter = RateLimiter(limit=int(os.getenv('BOLSA_RATE_LIMIT', '120')), 
 operations_kill_switch = KillSwitch(Path(root_dir) / 'database' / 'kill_switch.json')
 application_errors = ErrorRegistry(max_items=200)
 WRITE_PATHS = ('/api/portfolio', '/api/learner/feedback', '/api/ml/retrain',
-               '/api/scan/start', '/api/bolsa/operations/kill-switch')
+               '/api/bolsa/operations/kill-switch')
 
 
 @app.before_request
@@ -992,28 +992,6 @@ def bolsa_readiness():
         return jsonify({'status': 'ready'}), 200
     except Exception as e:
         return jsonify({'status': 'error', 'message': sanitize_public_error(e)}), 500
-
-
-@app.route('/api/scan/start', methods=['POST'])
-def start_scan():
-    if SCAN_STATE['is_scanning']:
-        return jsonify({'status': 'error', 'message': 'Scan ya en progreso'}), 409
-
-    data = request.get_json(force=True) or {}
-    kwargs = {
-        'use_cache':   data.get('use_cache', True),
-        'max_workers': int(data.get('max_workers', 15)),
-        'source':      data.get('source', 'all'),
-    }
-    threading.Thread(target=_run_scan_worker, kwargs=kwargs, daemon=True).start()
-    return jsonify({'status': 'ok', 'message': 'Escaneo iniciado'})
-
-
-@app.route('/api/scan/stop', methods=['POST'])
-def stop_scan():
-    if SCAN_STATE['is_scanning']:
-        SCAN_STATE['stop_event'].set()
-    return jsonify({'status': 'ok', 'message': 'Señal de parada enviada'})
 
 
 @app.route('/api/scan/status', methods=['GET'])

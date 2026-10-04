@@ -35,7 +35,9 @@ class AutoScanScheduleTests(unittest.TestCase):
         self.assertNotIn('id="btn-start"', html)
         self.assertNotIn('id="btn-stop"', html)
         self.assertIn("IA AUTOMÁTICA · SERVICIO PERMANENTE", html)
-        self.assertIn("if (btnStart) btnStart.disabled", js)
+        self.assertNotIn("btnStart", js)
+        self.assertNotIn("/scan/start", js)
+        self.assertIn("startStatusPolling();", js)
 
 
 if __name__ == "__main__":

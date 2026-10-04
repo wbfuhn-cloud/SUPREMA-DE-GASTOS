@@ -843,6 +843,15 @@ body {
 .portfolio-row-green { box-shadow: inset 4px 0 0 var(--success-color); }
 .portfolio-row-yellow { box-shadow: inset 4px 0 0 var(--warning-color); }
 .portfolio-row-red { box-shadow: inset 4px 0 0 var(--danger-color); background: rgba(239, 68, 68, .055); }
+.portfolio-traffic-legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 16px; }
+.traffic-item { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--border-color); border-radius: 10px; color: var(--text-secondary); font-size: 11px; line-height: 1.3; }
+.traffic-item i { width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; box-shadow: 0 0 10px currentColor; }
+.traffic-item.green i { color: var(--success-color); background: var(--success-color); }
+.traffic-item.yellow i { color: var(--warning-color); background: var(--warning-color); }
+.traffic-item.red i { color: var(--danger-color); background: var(--danger-color); }
+.traffic-item.green strong { color: var(--success-color); }
+.traffic-item.yellow strong { color: var(--warning-color); }
+.traffic-item.red strong { color: var(--danger-color); }
 .portfolio-signal { display: inline-flex; width: fit-content; padding: 5px 10px; border: 1px solid currentColor; border-radius: 999px; font-size: 10px; font-weight: 900; letter-spacing: .45px; }
 .portfolio-signal.green { color: var(--success-color); background: var(--success-bg); }
 .portfolio-signal.yellow { color: var(--warning-color); background: rgba(245, 158, 11, .10); }

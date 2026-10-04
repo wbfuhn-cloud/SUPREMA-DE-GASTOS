@@ -35,19 +35,8 @@ function escapeHtml(value) {
 }
 
 // Elements
-const btnStart = document.getElementById("btn-start");
-const btnStop = document.getElementById("btn-stop");
-const btnClearCache = document.getElementById("btn-clear-cache");
-const btnClearTicker = document.getElementById("btn-clear-ticker");
-const sourceSelect = document.getElementById("source-select");
-const workersSlider = document.getElementById("workers-slider");
-const workersVal = document.getElementById("workers-val");
-const useCacheChk = document.getElementById("use-cache");
-const sourceSubtitle = document.getElementById("source-subtitle");
 const marketStatus = document.getElementById("market-status");
 const cacheStats = document.getElementById("cache-stats");
-const progressBar = document.getElementById("progress-bar");
-const progressText = document.getElementById("progress-text");
 
 const tabBtns = document.querySelectorAll(".tab-btn[data-tab]");
 const tabContents = document.querySelectorAll(".tab-content");
@@ -57,8 +46,6 @@ const volatilityTableBody = document.querySelector("#volatility-table tbody");
 const gemsTableBody = document.querySelector("#gems-table tbody");
 const riskOutput = document.getElementById("risk-output");
 const detailsContent = document.getElementById("details-content");
-const autoScanChk = document.getElementById("auto-scan");
-
 const tslaMonitor = document.getElementById("tsla-monitor");
 const tslaContent = document.getElementById("tsla-content");
 
@@ -69,7 +56,6 @@ const searchTicker = { value: '', addEventListener: () => {} };
 // State
 let isScanning = false;
 let statusInterval = null;
-let autoScanInterval = null;
 let allResults = [];
 let selectedTickerData = null;
 
@@ -173,6 +159,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // 3. Cargar estado de escaneo
     await checkScanStatus();
+    startStatusPolling();
     
     // 4. El programador del servidor decide cuándo escanear para no contaminar
     // la evidencia con datos fuera de sesión.
@@ -196,19 +183,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 // Event Listeners (v2.7.1: guards null — un elemento faltante tumbaba todo el visor en blanco)
-if (workersSlider && workersVal) workersSlider.addEventListener("input", (e) => { workersVal.textContent = e.target.value; });
-if (sourceSelect && sourceSubtitle) sourceSelect.addEventListener("change", (e) => {
-    try {
-        const text = e.target.options[e.target.selectedIndex].text;
-        sourceSubtitle.textContent = `${text} (OPTIMIZADO)`;
-    } catch (err) { /* noop */ }
-});
-
-if (btnStart) btnStart.addEventListener("click", startScan);
-if (btnStop) btnStop.addEventListener("click", stopScan);
-if (btnClearCache) btnClearCache.addEventListener("click", () => clearCache("data"));
-if (btnClearTicker) btnClearTicker.addEventListener("click", () => clearCache("tickers"));
-
 // Portfolio elements
 const btnAddPortfolio = document.getElementById("btn-add-portfolio");
 const portTicker = document.getElementById("port-ticker");
@@ -523,14 +497,6 @@ document.querySelectorAll(".risk-inputs input").forEach(input => {
     });
 });
 
-if (autoScanChk) autoScanChk.addEventListener("change", (e) => {
-    // El auto-scan ahora se gestiona principalmente en el servidor
-    // pero permitimos al usuario forzar un inicio si lo desea
-    if(e.target.checked && !isScanning) {
-        startScan();
-    }
-});
-
 // API Calls
 async function updateCacheStats() {
     try {
@@ -540,60 +506,6 @@ async function updateCacheStats() {
         if (cacheStats) cacheStats.innerHTML = `<i data-lucide="zap"></i> Caché: ${dCache.total_tickers} stocks | ${dCache.total_size_mb.toFixed(1)} MB | Listas: ${data.ticker_cache.cached_sources}`;
     } catch (e) {
         console.error("Error fetching cache stats", e);
-    }
-}
-
-async function clearCache(target) {
-    if(!await requestConfirmation(`¿Limpiar la caché de ${target}?`)) return;
-    try {
-        const response = await fetch(`${API_URL}/cache/clear`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ target })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        updateCacheStats();
-        showToast("Caché limpiada correctamente.", "success");
-    } catch (e) {
-        console.error("Error clearing cache", e);
-        showToast("No fue posible limpiar la caché.", "error");
-    }
-}
-
-async function startScan() {
-    try {
-        // sp500_nasdaq = combinar ambas fuentes en el backend
-        let source = sourceSelect.value;
-        if (source === 'sp500_nasdaq') source = 'sp500_nasdaq';
-
-        const res = await fetch(`${API_URL}/scan/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                source: source,
-                max_workers: parseInt(workersSlider.value),
-                use_cache: useCacheChk.checked
-            })
-        });
-        
-        if(res.ok) {
-            btnStart.disabled = true;
-            btnStop.disabled = false;
-            allResults = [];
-            renderTables();
-            isScanning = true;
-            startStatusPolling();
-        }
-    } catch (e) {
-        console.error("Error starting scan", e);
-    }
-}
-
-async function stopScan() {
-    try {
-        await fetch(`${API_URL}/scan/stop`, { method: "POST" });
-    } catch (e) {
-        console.error("Error stopping scan", e);
     }
 }
 
@@ -870,7 +782,9 @@ async function removePortfolioItem(ticker) {
 
 function startStatusPolling() {
     if (statusInterval) return;
-    statusInterval = setInterval(checkScanStatus, 1000);
+    // El worker puede iniciar un ciclo en cualquier momento; la página debe
+    // seguir mostrando su estado aunque el usuario nunca pulse un botón.
+    statusInterval = setInterval(checkScanStatus, 5000);
 }
 
 async function checkScanStatus() {
@@ -878,16 +792,14 @@ async function checkScanStatus() {
         const res = await fetch(`${API_URL}/scan/status`);
         const data = await res.json();
         
-        if (progressBar) progressBar.style.width = `${(data.progress || 0) * 100}%`;
-        if (progressText) progressText.textContent = data.message || '';
         const automation = data.automation || {};
         const autoLabel = document.getElementById('auto-scan-label');
-        if (autoScanChk) autoScanChk.checked = automation.enabled !== false;
         if (autoLabel) {
-            const state = automation.scheduler_active ? 'ACTIVO' : 'GESTIONADO POR SERVIDOR PRINCIPAL';
+            const state = automation.worker_active && automation.scheduler_active ? 'ACTIVO' : 'SIN CONEXIÓN';
             const market = automation.market_open ? 'mercado abierto' : 'esperando apertura';
             const compute = automation.compute || {};
             const backend = compute.backend ? ` · cálculo ${String(compute.backend).toUpperCase()}` : '';
+            autoLabel.classList.toggle('worker-offline', !automation.worker_active);
             autoLabel.innerHTML = `<i class="fa-solid fa-robot"></i> IA AUTOMÁTICA · ${state} · ${market}${backend}`;
             const gpu = compute.gpu?.available ? ` GPU detectada: ${compute.gpu.name}; modelo actual no compatible con CUDA.` : '';
             autoLabel.title = `${automation.schedule || 'Programador automático del servidor'}.${gpu}`;
@@ -896,17 +808,10 @@ async function checkScanStatus() {
         if (!data.is_scanning && isScanning) {
             // Scan just finished
             isScanning = false;
-            clearInterval(statusInterval);
-            statusInterval = null;
-            if (btnStart) btnStart.disabled = false;
-            if (btnStop) btnStop.disabled = true;
             fetchResults();
             updateCacheStats();
         } else if (data.is_scanning) {
             isScanning = true;
-            if (btnStart) btnStart.disabled = true;
-            if (btnStop) btnStop.disabled = false;
-            startStatusPolling(); // Asegurar que estamos polleando si está activo
         } else if (!data.is_scanning && !isScanning && allResults.length === 0) {
              // Si no hay resultados cargados pero hay disponibles en el servidor, traerlos
              if (data.results_count > 0) {
