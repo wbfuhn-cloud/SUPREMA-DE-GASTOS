@@ -884,9 +884,9 @@ async function checkScanStatus() {
         const autoLabel = document.getElementById('auto-scan-label');
         if (autoScanChk) autoScanChk.checked = automation.enabled !== false;
         if (autoLabel) {
-            const state = automation.scheduler_active ? 'ACTIVO' : 'INICIANDO';
+            const state = automation.scheduler_active ? 'ACTIVO' : 'GESTIONADO POR SERVIDOR PRINCIPAL';
             const market = automation.market_open ? 'mercado abierto' : 'esperando apertura';
-            autoLabel.innerHTML = `<i class="fa-solid fa-robot"></i> Auto-Scan ${state} · ${market}`;
+            autoLabel.innerHTML = `<i class="fa-solid fa-robot"></i> IA AUTOMÁTICA · ${state} · ${market}`;
             autoLabel.title = automation.schedule || 'Programador automático del servidor';
         }
         
@@ -895,14 +895,14 @@ async function checkScanStatus() {
             isScanning = false;
             clearInterval(statusInterval);
             statusInterval = null;
-            btnStart.disabled = false;
-            btnStop.disabled = true;
+            if (btnStart) btnStart.disabled = false;
+            if (btnStop) btnStop.disabled = true;
             fetchResults();
             updateCacheStats();
         } else if (data.is_scanning) {
             isScanning = true;
-            btnStart.disabled = true;
-            btnStop.disabled = false;
+            if (btnStart) btnStart.disabled = true;
+            if (btnStop) btnStop.disabled = false;
             startStatusPolling(); // Asegurar que estamos polleando si está activo
         } else if (!data.is_scanning && !isScanning && allResults.length === 0) {
              // Si no hay resultados cargados pero hay disponibles en el servidor, traerlos

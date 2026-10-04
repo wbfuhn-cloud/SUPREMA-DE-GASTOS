@@ -30,6 +30,12 @@ class AutoScanScheduleTests(unittest.TestCase):
         friday_after_close = datetime(2026, 10, 2, 18, 0, tzinfo=NY)
         next_open = next_nyse_open(friday_after_close).astimezone(NY)
         self.assertEqual(next_open, datetime(2026, 10, 5, 9, 30, tzinfo=NY))
+        html = (ROOT / "tools" / "NOTIFICADOR_BOT" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "tools" / "NOTIFICADOR_BOT" / "app.js").read_text(encoding="utf-8")
+        self.assertNotIn('id="btn-start"', html)
+        self.assertNotIn('id="btn-stop"', html)
+        self.assertIn("IA AUTOMÁTICA · SERVICIO PERMANENTE", html)
+        self.assertIn("if (btnStart) btnStart.disabled", js)
 
 
 if __name__ == "__main__":

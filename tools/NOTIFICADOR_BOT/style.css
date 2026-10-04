@@ -204,6 +204,12 @@ body {
     border: 1px solid var(--glass-border);
 }
 
+.automation-toolbar { justify-content: space-between; }
+.automation-status-card { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.automation-status-card > div { display: flex; flex-direction: column; gap: 4px; }
+.automation-status-card strong { color: var(--success-color); font-size: 13px; font-weight: 900; letter-spacing: .3px; }
+.automation-status-card small { color: var(--text-secondary); line-height: 1.35; }
+
 .control-group {
     display: flex;
     align-items: center;
@@ -358,6 +364,7 @@ body {
     .view-mode-toggle { display: none; }
     .portfolio-controls { grid-template-columns: minmax(0, 1fr) !important; margin: 10px !important; }
     .table-responsive { padding: 0 10px; overflow-x: auto; }
+    .automation-toolbar { align-items: flex-start; }
 }
 
 .tab-btn {
