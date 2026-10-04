@@ -379,7 +379,13 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
                         timeout=10
                     )
             except Exception as e:
-                logger.error(f"Error enviando notificacion bolsa: {e}", exc_info=True)
+                # requests incluye la URL completa (y por tanto el token) en
+                # algunas excepciones. Registrar solo el tipo evita filtrar la
+                # credencial en consola o archivos de diagnóstico.
+                logger.error(
+                    "No se pudo enviar la notificación de Telegram (%s).",
+                    type(e).__name__,
+                )
                 
         else:
             SCAN_STATE['message'] = 'Sin resultados'
@@ -534,9 +540,13 @@ def run_live_alert_loop():
                                 )
                                 logger.info(f"Alerta enviada para {ticker}: {action}")
                             else:
-                                logger.error(f"Error Telegram: {res.text}")
+                                logger.error("Telegram respondió HTTP %s.", res.status_code)
                 except Exception as e:
-                    logger.error(f"Error procesando {ticker} en alertas en vivo: {e}")
+                    logger.error(
+                        "Error procesando %s en alertas en vivo (%s).",
+                        ticker,
+                        type(e).__name__,
+                    )
                     
         except Exception as e:
             logger.error(f"Error en loop de alertas en vivo: {e}")

@@ -54,6 +54,9 @@ class RuntimeHardeningTests(unittest.TestCase):
             self.assertEqual(resolve_telegram_chat_id(temp_dir, "", ""), "")
             self.assertEqual(resolve_telegram_chat_id(temp_dir, "token", ""), "123456")
             self.assertEqual(resolve_telegram_chat_id(temp_dir, "token", "configured"), "configured")
+        server_source = (ROOT / "src" / "server.py").read_text(encoding="utf-8")
+        self.assertNotIn('Error enviando notificacion bolsa: {e}', server_source)
+        self.assertNotIn('Error Telegram: {res.text}', server_source)
 
 
 if __name__ == "__main__":

@@ -91,7 +91,23 @@ def validate_ohlcv(df: pd.DataFrame) -> dict[str, Any]:
         positive_deltas = deltas[deltas > 0]
         if not positive_deltas.empty:
             expected_frequency_seconds = int(positive_deltas.median())
-            gap_count = int((positive_deltas > expected_frequency_seconds * 1.5).sum())
+            if 18 * 60 * 60 <= expected_frequency_seconds <= 30 * 60 * 60:
+                # En velas diarias, una separación de tres o cuatro días es
+                # normal por fines de semana y feriados. Antes se marcaba cada
+                # fin de semana como intervalo perdido y toda la bolsa quedaba
+                # artificialmente en calidad 0.90. Contamos únicamente sesiones
+                # NYSE que realmente debieron existir entre dos observaciones.
+                from prediction_ledger import NyseCalendar
+
+                calendar = NyseCalendar()
+                observed_dates = sorted(set(utc_index.date))
+                for previous, current in zip(observed_dates, observed_dates[1:]):
+                    expected = calendar.next_session(previous)
+                    while expected < current:
+                        gap_count += 1
+                        expected = calendar.next_session(expected)
+            else:
+                gap_count = int((positive_deltas > expected_frequency_seconds * 1.5).sum())
             if gap_count:
                 issues.append(f"missing_intervals:{gap_count}")
 

@@ -72,12 +72,35 @@ class MarketDataContractTests(unittest.TestCase):
         self.assertIn("duplicate_timestamps", result["issues"])
 
     def test_missing_interval_is_identified(self):
-        df = history(rows=10)
+        index = pd.bdate_range(end="2026-10-01T20:00:00Z", periods=10, tz="UTC")
+        close = np.linspace(90.0, 110.0, len(index))
+        df = pd.DataFrame({
+            "Open": close - .5, "High": close + 1, "Low": close - 1,
+            "Close": close, "Volume": np.full(len(index), 1_000_000),
+        }, index=index)
         df = df.drop(df.index[5])
         result = validate_ohlcv(df)
         self.assertEqual(result["expected_frequency_seconds"], 86400)
         self.assertEqual(result["gap_count"], 1)
         self.assertIn("missing_intervals:1", result["issues"])
+
+    def test_daily_market_weekends_are_not_missing_intervals(self):
+        index = pd.to_datetime([
+            "2026-09-30T20:00:00Z",
+            "2026-10-01T20:00:00Z",
+            "2026-10-02T20:00:00Z",
+            "2026-10-05T20:00:00Z",
+            "2026-10-06T20:00:00Z",
+        ])
+        close = np.linspace(100.0, 104.0, len(index))
+        frame = pd.DataFrame({
+            "Open": close - .5, "High": close + 1, "Low": close - 1,
+            "Close": close, "Volume": np.full(len(index), 1_000_000),
+        }, index=index)
+        result = validate_ohlcv(frame)
+        self.assertEqual(result["gap_count"], 0)
+        self.assertNotIn("missing_intervals", " ".join(result["issues"]))
+        self.assertGreaterEqual(result["quality_score"], .995)
 
     def test_legacy_result_is_explicitly_stale(self):
         quote = ensure_quote_contract({"Ticker": "OLD", "Price": 10})
