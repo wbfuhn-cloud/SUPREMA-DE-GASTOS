@@ -886,8 +886,11 @@ async function checkScanStatus() {
         if (autoLabel) {
             const state = automation.scheduler_active ? 'ACTIVO' : 'GESTIONADO POR SERVIDOR PRINCIPAL';
             const market = automation.market_open ? 'mercado abierto' : 'esperando apertura';
-            autoLabel.innerHTML = `<i class="fa-solid fa-robot"></i> IA AUTOMÁTICA · ${state} · ${market}`;
-            autoLabel.title = automation.schedule || 'Programador automático del servidor';
+            const compute = automation.compute || {};
+            const backend = compute.backend ? ` · cálculo ${String(compute.backend).toUpperCase()}` : '';
+            autoLabel.innerHTML = `<i class="fa-solid fa-robot"></i> IA AUTOMÁTICA · ${state} · ${market}${backend}`;
+            const gpu = compute.gpu?.available ? ` GPU detectada: ${compute.gpu.name}; modelo actual no compatible con CUDA.` : '';
+            autoLabel.title = `${automation.schedule || 'Programador automático del servidor'}.${gpu}`;
         }
         
         if (!data.is_scanning && isScanning) {

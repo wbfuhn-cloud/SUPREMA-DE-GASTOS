@@ -206,9 +206,26 @@ AUTO_SCAN_STATE: dict = {
 }
 
 SCAN_CACHE_FILE = os.path.join(root_dir, 'database', 'last_scan_results.json')
+BOLSA_WORKER_STATUS_FILE = os.path.join(root_dir, 'database', 'bolsa_worker_status.json')
+_scan_cache_mtime = 0.0
+
+
+def _external_worker_status(max_age_seconds: int = 15) -> dict:
+    """Lee el heartbeat del proceso Bolsa sin acoplarlo al servidor web."""
+    try:
+        with open(BOLSA_WORKER_STATUS_FILE, 'r', encoding='utf-8') as handle:
+            status = json.load(handle)
+        heartbeat = datetime.fromisoformat(str(status.get('heartbeat_utc', '')).replace('Z', '+00:00'))
+        age = max(0.0, (datetime.now(timezone.utc) - heartbeat).total_seconds())
+        status['heartbeat_age_seconds'] = round(age, 2)
+        status['active'] = status.get('status') == 'running' and age <= max_age_seconds
+        return status
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {'status': 'unavailable', 'active': False}
 
 def _load_scan_persistence():
     """Carga el último escaneo guardado desde disco."""
+    global _scan_cache_mtime
     if os.path.exists(SCAN_CACHE_FILE):
         try:
             with open(SCAN_CACHE_FILE, 'r', encoding='utf-8') as f:
@@ -239,6 +256,7 @@ def _load_scan_persistence():
                 SCAN_STATE['market_context'] = data.get('market_context')
                 SCAN_STATE['generated_at_utc'] = data.get('generated_at_utc') or data.get('timestamp')
                 SCAN_STATE['message'] = 'Resultados cargados (historial)'
+                _scan_cache_mtime = os.path.getmtime(SCAN_CACHE_FILE)
         except Exception as e:
             logger.error(f"Error cargando persistencia de escaneo: {e}")
 
@@ -255,6 +273,16 @@ def _save_scan_persistence():
             }, f, indent=4)
     except Exception as e:
         logger.error(f"Error guardando persistencia de escaneo: {e}")
+
+
+def _refresh_external_scan_results() -> None:
+    """Actualiza la vista web cuando el worker aislado publica otro escaneo."""
+    try:
+        current_mtime = os.path.getmtime(SCAN_CACHE_FILE)
+        if current_mtime > _scan_cache_mtime:
+            _load_scan_persistence()
+    except OSError:
+        pass
 
 # Cargar la persistencia inmediatamente al iniciar el módulo
 try:
@@ -918,12 +946,14 @@ def bolsa_health():
         
         # Ampliación para Fase 1
         db_path = os.path.join(root_dir, 'tools', 'NOTIFICADOR_BOT', 'learner.db')
+        worker = _external_worker_status()
         return jsonify({
             'status': 'ok' if ok else 'error', 
             'version': '3.0.1',
             'build': 'error-hardening',
             'db_exists': os.path.exists(db_path),
             'provider': 'yahoo_chart_v8',
+            'bolsa_worker': worker,
             'checks': checks
         }), (200 if ok else 503)
     except Exception as e:
@@ -988,6 +1018,7 @@ def stop_scan():
 
 @app.route('/api/scan/status', methods=['GET'])
 def scan_status():
+    _refresh_external_scan_results()
     if not SCAN_STATE['results']:
         _load_scan_persistence()
     er = SCAN_STATE.get('exchange_rate', 20.5)
@@ -1000,14 +1031,22 @@ def scan_status():
                 break
     now_utc = datetime.now(timezone.utc)
     market_open = _is_market_hours(now_utc)
+    worker = _external_worker_status()
+    external_scan = worker.get('scan') if worker.get('active') else None
+    external_scheduler = worker.get('scheduler') if worker.get('active') else None
+    scan_view = external_scan or SCAN_STATE
+    automation_view = {**AUTO_SCAN_STATE, **(external_scheduler or {})}
+    automation_view['worker_active'] = bool(worker.get('active'))
+    automation_view['worker_pid'] = worker.get('pid')
+    automation_view['compute'] = worker.get('compute') or {}
     return jsonify({
-        'is_scanning':   SCAN_STATE['is_scanning'],
-        'progress':      SCAN_STATE['progress'],
-        'message':       SCAN_STATE['message'],
-        'results_count': len(SCAN_STATE['results']),
+        'is_scanning':   bool(scan_view.get('is_scanning')),
+        'progress':      float(scan_view.get('progress') or 0.0),
+        'message':       scan_view.get('message') or SCAN_STATE['message'],
+        'results_count': int(scan_view.get('results_count', len(SCAN_STATE['results']))),
         'exchange_rate': er,
         'automation': {
-            **AUTO_SCAN_STATE,
+            **automation_view,
             'market_open': market_open,
             'schedule': 'NYSE 09:30-16:00 America/New_York; respeta festivos y medias sesiones',
             'next_market_open_utc': None if market_open else next_nyse_open(now_utc).isoformat().replace('+00:00', 'Z'),
@@ -1017,6 +1056,7 @@ def scan_status():
 
 @app.route('/api/scan/results', methods=['GET'])
 def get_results():
+    _refresh_external_scan_results()
     if not SCAN_STATE['results']:
         _load_scan_persistence()
     if SCAN_STATE['is_scanning']:

@@ -22,6 +22,7 @@ venv/
 *.db-shm
 *.db-wal
 database/*.db
+database/bolsa_worker_status.json
 data/*.db
 backups/
 

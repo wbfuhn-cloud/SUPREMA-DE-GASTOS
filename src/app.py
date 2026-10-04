@@ -56,6 +56,7 @@ from src.server import run_server
 from src.tunnel import TunnelManager
 from src.monitor import hilo_baz, stop_event as monitor_stop_event
 from src.updater import start_background_update_check
+from src.service_supervisor import start_bolsa_worker, stop_bolsa_worker
 
 
 class TextHandler(logging.Handler):
@@ -168,6 +169,7 @@ class BotGUI(ctk.CTk):
 
         self.bot_thread:   threading.Thread | None = None
         self.bot_instance: ExpenseBot | None       = None
+        self.bolsa_worker_process = None
         self.stop_event = threading.Event()
         self.log_queue: queue.Queue = queue.Queue()
 
@@ -266,10 +268,16 @@ class BotGUI(ctk.CTk):
                 
                 server_thread = threading.Thread(
                     target=run_server,
-                    kwargs={'port': port, 'bot_instance': self.bot_instance},
+                    kwargs={'port': port, 'bot_instance': self.bot_instance, 'start_jobs': False},
                     daemon=True
                 )
                 server_thread.start()
+
+                # Bolsa ejecuta descargas, indicadores y seguimiento en otro
+                # proceso para no retrasar Telegram, correo BAZ ni la GUI.
+                self.bolsa_worker_process = start_bolsa_worker()
+                logging.info("Worker de Bolsa iniciado como proceso independiente (PID %s).",
+                             self.bolsa_worker_process.pid)
 
                 # Mostrar "EN LÍNEA" casi de inmediato ya que el servidor levanta rápido
                 self.after(0, lambda: self.status_label.configure(
@@ -306,6 +314,8 @@ class BotGUI(ctk.CTk):
                 self.after(0, lambda: messagebox.showerror("Error del Bot", f"El bot se detuvo por un error:\n{e}"))
             finally:
                 monitor_stop_event.set()
+                stop_bolsa_worker(self.bolsa_worker_process)
+                self.bolsa_worker_process = None
                 self.after(0, self._reset_ui)
 
         self.bot_thread = threading.Thread(target=background_init, daemon=True)
@@ -358,6 +368,8 @@ class BotGUI(ctk.CTk):
                 except Exception as e:
                     logging.error(f"Error al detener bot: {e}")
             self.pause_services()
+            stop_bolsa_worker(self.bolsa_worker_process)
+            self.bolsa_worker_process = None
 
         threading.Thread(target=_trigger, daemon=True).start()
         allow_sleep()
@@ -395,6 +407,8 @@ class BotGUI(ctk.CTk):
         try:
             if self.bot_instance:
                 threading.Thread(target=self.bot_instance.stop, daemon=True).start()
+            stop_bolsa_worker(self.bolsa_worker_process)
+            self.bolsa_worker_process = None
             TunnelManager.stop_tunnel()
         except Exception:
             pass
