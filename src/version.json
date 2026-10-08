@@ -1,6 +1,7 @@
 {
-  "app_version": "3.3.0",
+  "app_version": "3.4.0",
   "database_schema_version": "1.0",
   "last_deployment_date": "2026-09-08",
-  "environment": "local"
+  "environment": "local",
+  "github_repository": "wbfuhn-cloud/SUPREMA-DE-GASTOS"
 }

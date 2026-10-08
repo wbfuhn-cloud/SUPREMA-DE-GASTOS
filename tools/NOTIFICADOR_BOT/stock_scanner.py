@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import requests
+from requests.adapters import HTTPAdapter
 import logging
 import time
 from pathlib import Path
@@ -25,6 +26,7 @@ from technical_engine import (
     macd_frame,
     rsi_series,
 )
+from signal_fusion import FUSION_VERSION, FusionInput, fuse_signal
 
 try:
     from recommendation_learner import get_learner
@@ -33,8 +35,99 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# El motor necesita contexto suficiente para SMA200 y para observar, como
+# minimo, un ciclo anual completo. Solicitamos 2y para tolerar festivos,
+# suspensiones y rangos exclusivos del proveedor, pero exigimos 1y real.
+HISTORY_DOWNLOAD_PERIOD = '2y'
+MIN_HISTORY_CALENDAR_DAYS = 365
+MIN_HISTORY_SESSIONS = 200
+FULL_TRADING_YEAR_SESSIONS = 250
+
+
+def history_coverage(history: pd.DataFrame | None) -> dict:
+    """Resume y valida la cobertura temporal utilizable de un histórico."""
+    if history is None or history.empty:
+        return {
+            'eligible': False, 'calendar_days': 0, 'sessions': 0,
+            'start': None, 'end': None,
+        }
+    index = pd.DatetimeIndex(history.index).dropna().sort_values().unique()
+    if len(index) == 0:
+        return {
+            'eligible': False, 'calendar_days': 0, 'sessions': 0,
+            'start': None, 'end': None,
+        }
+    start = pd.Timestamp(index[0])
+    end = pd.Timestamp(index[-1])
+    calendar_days = int((end - start).total_seconds() // 86400)
+    sessions = int(len(index))
+    return {
+        'eligible': (
+            sessions >= MIN_HISTORY_SESSIONS
+            and (
+                calendar_days >= MIN_HISTORY_CALENDAR_DAYS
+                or sessions >= FULL_TRADING_YEAR_SESSIONS
+            )
+        ),
+        'calendar_days': calendar_days,
+        'sessions': sessions,
+        'start': start.date().isoformat(),
+        'end': end.date().isoformat(),
+    }
+
+
+HOLDING_HORIZONS = {
+    '1_month': {'sessions': 21, 'label': '1 mes'},
+    '3_months': {'sessions': 63, 'label': '3 meses'},
+    '6_months': {'sessions': 126, 'label': '6 meses'},
+}
+
+
+def build_holding_outlook(close: pd.Series, signal_state: str, *, is_leveraged: bool = False) -> dict:
+    """Crea escenarios históricos de 1, 3 y 6 meses sin presentarlos como promesas."""
+    prices = pd.to_numeric(close, errors='coerce').dropna()
+    if len(prices) < 127:
+        return {'available': False, 'reason': 'historial insuficiente para 6 meses'}
+    returns = prices.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+    result = {}
+    buy_signal = signal_state == 'COMPRAR' and not is_leveraged
+    for key, spec in HOLDING_HORIZONS.items():
+        sessions = spec['sessions']
+        historical_return = (float(prices.iloc[-1] / prices.iloc[-sessions - 1]) - 1.0) * 100.0
+        sample = returns.tail(max(63, sessions))
+        expected_move = float(sample.std(ddof=0) * np.sqrt(sessions) * 100.0)
+        favorable_trend = historical_return > 0
+        if buy_signal and favorable_trend:
+            verdict = 'CANDIDATA'
+        elif favorable_trend:
+            verdict = 'OBSERVAR'
+        else:
+            verdict = 'EVITAR/ESPERAR'
+        result[key] = {
+            'label': spec['label'],
+            'sessions': sessions,
+            'historical_momentum_pct': round(historical_return, 2),
+            'estimated_move_1sigma_pct': round(expected_move, 2),
+            'upside_30pct_is_plausible': expected_move >= 30.0,
+            'verdict': verdict,
+        }
+    return {
+        'available': True,
+        'method': 'momentum histórico y volatilidad realizada; no es pronóstico garantizado',
+        'horizons': result,
+    }
+
 # ── Sesión HTTP con headers de navegador real (evita 401) ────────────────────
 _SESSION = requests.Session()
+_HTTP_POOL_SIZE = 64
+_HTTP_ADAPTER = HTTPAdapter(
+    pool_connections=_HTTP_POOL_SIZE,
+    pool_maxsize=_HTTP_POOL_SIZE,
+    max_retries=1,
+    pool_block=True,
+)
+_SESSION.mount('https://', _HTTP_ADAPTER)
+_SESSION.mount('http://', _HTTP_ADAPTER)
 _SESSION.headers.update({
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -349,12 +442,12 @@ def get_market_regime() -> dict:
         return {'regime': 'DESCONOCIDO', 'spy_vs_sma200': 0, 'vix': 0, 'score_modifier': 1.0}
 
 # ── Descarga masiva paralela (directo a Yahoo v8) ──────────────────────────
-def _bulk_download_history(tickers: list, period='1y') -> dict:
+def _bulk_download_history(tickers: list, period=HISTORY_DOWNLOAD_PERIOD) -> dict:
     """Descarga paralela de históricos usando la API v8 directa."""
     result = {}
     def _dl(t):
         df = _fetch_history_raw(t, period=period)
-        if df is not None and len(df) >= 50:
+        if history_coverage(df)['eligible']:
             return t, df
         return t, None
 
@@ -373,11 +466,31 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
         elif use_cache and is_cache_valid(ticker, 'history'):
             history = load_from_cache(ticker, 'history')
         else:
-            history = _fetch_history_raw(ticker, period='1y')
+            history = _fetch_history_raw(ticker, period=HISTORY_DOWNLOAD_PERIOD)
             if history is not None:
                 save_to_cache(ticker, history, 'history')
 
-        if history is None or len(history) < 50:
+        coverage = history_coverage(history)
+        if not coverage['eligible']:
+            # Una caché antigua pudo haberse creado cuando solo se solicitaba
+            # 1y. Se renueva una vez antes de descartar el activo.
+            if history is not None:
+                refreshed = _fetch_history_raw(ticker, period=HISTORY_DOWNLOAD_PERIOD)
+                refreshed_coverage = history_coverage(refreshed)
+                if refreshed_coverage['eligible']:
+                    history = refreshed
+                    coverage = refreshed_coverage
+                    save_to_cache(ticker, history, 'history')
+            if not coverage['eligible']:
+                logger.warning(
+                    "Histórico insuficiente para %s: %d días, %d sesiones; mínimo=%d días o %d sesiones bursátiles (piso=%d).",
+                    ticker, coverage['calendar_days'], coverage['sessions'],
+                    MIN_HISTORY_CALENDAR_DAYS, FULL_TRADING_YEAR_SESSIONS,
+                    MIN_HISTORY_SESSIONS,
+                )
+                return None
+
+        if history is None:
             return None
 
         quote = quote_from_history(
@@ -452,7 +565,14 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
         ml_score = None
         ml_conf = "NO DISPONIBLE"
         ml_breakdown = {}
-        ml_source = "fallback"
+        ml_source = "heuristic_fallback"
+        ml_prediction = None
+        calibrated_probability = None
+        model_version = "unavailable"
+        ml_ood = False
+        ml_degraded_reason = "model_not_loaded"
+        buy_score = None
+        exit_score = None
         try:
             from ml_predictor import get_ml_predictor
             predictor = get_ml_predictor()
@@ -474,8 +594,55 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             ml_conf = prediction.get('confidence_level', ml_conf)
             ml_breakdown = prediction.get('feature_breakdown', {})
             ml_source = prediction.get('source', ml_source)
+            ml_prediction = prediction.get('model_prediction')
+            calibrated_probability = prediction.get('calibrated_probability')
+            model_version = prediction.get('model_version', model_version)
+            ml_ood = bool(prediction.get('ood_detected'))
+            ml_degraded_reason = prediction.get('degraded_reason', '')
+            buy_score = prediction.get('buy_score')
+            exit_score = prediction.get('exit_score')
         except Exception as e:
             logger.debug(f"ML prediction error for {ticker}: {e}")
+
+        regime_map = {
+            'uptrend': 'alcista', 'lateral': 'lateral', 'noise': 'lateral',
+            'downtrend': 'bajista', 'jump': 'crisis', 'high_volatility': 'crisis',
+        }
+        fusion_horizons = {}
+        for horizon_name, horizon_result in heuristic['horizons'].items():
+            fusion_horizons[horizon_name] = fuse_signal(FusionInput(
+                symbol=ticker,
+                horizon=horizon_result['sessions'],
+                heuristic_score=float(horizon_result['directional_score']),
+                heuristic_state=horizon_result['state'],
+                data_quality=float(quote.get('quality_score', 0.0)),
+                regime=regime_map.get(heuristic['regime'], 'lateral'),
+                price=float(price),
+                atr=float(atr),
+                calibrated_prob_up=calibrated_probability,
+                calibrated_prob_down=None,
+                model_approved=ml_source == 'validated_ml_model',
+                ml_ood=ml_ood,
+                spectral_score=None,
+                spectral_validated=False,
+                leveraged_etf=is_leveraged,
+            ))
+        primary_fusion = fusion_horizons['swing']
+        display_signal_state = (
+            'MANTENER/ESPERAR'
+            if primary_fusion['state'] in {'MANTENER', 'ESPERAR'}
+            else primary_fusion['state']
+        )
+        holding_outlook = build_holding_outlook(
+            close,
+            display_signal_state,
+            is_leveraged=is_leveraged,
+        )
+        realized_volatility = heuristic['indicators'].get('realized_volatility_20')
+        realized_volatility_pct = (
+            round(float(realized_volatility) * 100.0, 2)
+            if realized_volatility is not None else None
+        )
 
         return {
             'Ticker':           ticker,
@@ -485,13 +652,30 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'ML_Confidence':    ml_conf,
             'ML_Breakdown':     ml_breakdown,
             'ML_Source':        ml_source,
+            'Model_Prediction': ml_prediction,
+            'Calibrated_Probability': calibrated_probability,
+            'Model_Version':    model_version,
+            'Top_Features':     ml_breakdown,
+            'ML_OOD_Detected':  ml_ood,
+            'ML_Degraded_Reason': ml_degraded_reason,
+            'Buy_Score':        buy_score,
+            'Exit_Score':       exit_score,
             'Quote':            quote,
+            'Historical_Coverage': coverage,
             'Data_Quality':     quote.get('quality_score', 0.0),
             'Data_Quality_Issues': quote.get('quality_issues', []),
-            'Signal_Eligible':  heuristic['state'] != 'SIN SEÑAL',
+            'Signal_Eligible':  primary_fusion['state'] != 'SIN SEÑAL',
             'Is_Leveraged':     is_leveraged,
             'Viabilidad':       scores['etiqueta'],
-            'Signal_State':     heuristic['state'],
+            'Signal_State':     display_signal_state,
+            'Fusion_Version':   FUSION_VERSION,
+            'Fusion_Horizons':  fusion_horizons,
+            'Fusion_Explanation': {
+                'factors_for': primary_fusion['factors_for'],
+                'factors_against': primary_fusion['factors_against'],
+                'invalidation_triggers': primary_fusion['invalidation_triggers'],
+            },
+            'Risk_Plan':        primary_fusion['risk_plan'],
             'Heuristic_Version': HEURISTIC_VERSION,
             'Horizon_Scores':   heuristic['horizons'],
             'Score_Contributions': heuristic['contributions'],
@@ -512,6 +696,8 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
             'BB_Lower':         round(bb_l, 2),
             'ATR':              round(atr, 2),
             'Volatility_Percent': round(vol_pct, 2),
+            'Realized_Volatility_20d_Pct': realized_volatility_pct,
+            'Holding_Outlook':   holding_outlook,
             'Avg_Volume':       int(avg_vol),
             'Vol_Ratio':        round(vol_ratio, 2),
             'Beta':             round(float(beta), 2) if beta is not None else None,
@@ -715,10 +901,14 @@ def fetch_stock_data(progress_callback=None, stop_event=None, use_cache=True, ma
                     
                     # Calcular confianza si hay learner
                     if get_learner:
-                        conf = get_learner().get_confidence(r['Ticker'], r.get('Sector', ''), r.get('RSI', 50))
+                        conf = get_learner().get_confidence(
+                            r['Ticker'], r.get('Sector', ''), r.get('RSI', 50),
+                            r.get('Signal_State', ''),
+                        )
                         r['AI_Confidence'] = conf.get('confidence')
                         r['AI_Confidence_Available'] = conf.get('available', False)
                         r['AI_Sample_Size'] = conf.get('sample_size', 0)
+                        r['AI_Confidence_Source'] = conf.get('source', 'legacy_recommendations')
                         r['AI_Notes'] = conf['notes']
                         
                     results.append(r)

@@ -55,6 +55,8 @@ from src.config import Config
 from src.server import run_server
 from src.tunnel import TunnelManager
 from src.monitor import hilo_baz, stop_event as monitor_stop_event
+from src.updater import start_background_update_check
+from src.service_supervisor import start_bolsa_worker, stop_bolsa_worker
 
 
 class TextHandler(logging.Handler):
@@ -63,6 +65,18 @@ class TextHandler(logging.Handler):
         self.log_queue = log_queue
 
     def emit(self, record):
+        # La librería de Telegram adjunta un traceback completo a fallos DNS
+        # transitorios aunque su propio bucle vaya a reintentar. En la GUI
+        # basta un aviso corto; errores no transitorios conservan su traceback.
+        if (record.name == "telegram.ext._utils.networkloop"
+                and record.exc_info
+                and "Network Retry Loop" in record.getMessage()):
+            record.exc_info = None
+            record.exc_text = None
+            record.levelno = logging.WARNING
+            record.levelname = "WARNING"
+            record.msg = "[TELEGRAM] Red temporalmente no disponible; reintentando automáticamente."
+            record.args = ()
         msg = self.format(record)
         self.log_queue.put(msg)
 
@@ -167,6 +181,7 @@ class BotGUI(ctk.CTk):
 
         self.bot_thread:   threading.Thread | None = None
         self.bot_instance: ExpenseBot | None       = None
+        self.bolsa_worker_process = None
         self.stop_event = threading.Event()
         self.log_queue: queue.Queue = queue.Queue()
 
@@ -265,10 +280,16 @@ class BotGUI(ctk.CTk):
                 
                 server_thread = threading.Thread(
                     target=run_server,
-                    kwargs={'port': port, 'bot_instance': self.bot_instance},
+                    kwargs={'port': port, 'bot_instance': self.bot_instance, 'start_jobs': False},
                     daemon=True
                 )
                 server_thread.start()
+
+                # Bolsa ejecuta descargas, indicadores y seguimiento en otro
+                # proceso para no retrasar Telegram, correo BAZ ni la GUI.
+                self.bolsa_worker_process = start_bolsa_worker()
+                logging.info("Worker de Bolsa iniciado como proceso independiente (PID %s).",
+                             self.bolsa_worker_process.pid)
 
                 # Mostrar "EN LÍNEA" casi de inmediato ya que el servidor levanta rápido
                 self.after(0, lambda: self.status_label.configure(
@@ -305,6 +326,8 @@ class BotGUI(ctk.CTk):
                 self.after(0, lambda: messagebox.showerror("Error del Bot", f"El bot se detuvo por un error:\n{e}"))
             finally:
                 monitor_stop_event.set()
+                stop_bolsa_worker(self.bolsa_worker_process)
+                self.bolsa_worker_process = None
                 self.after(0, self._reset_ui)
 
         self.bot_thread = threading.Thread(target=background_init, daemon=True)
@@ -357,6 +380,8 @@ class BotGUI(ctk.CTk):
                 except Exception as e:
                     logging.error(f"Error al detener bot: {e}")
             self.pause_services()
+            stop_bolsa_worker(self.bolsa_worker_process)
+            self.bolsa_worker_process = None
 
         threading.Thread(target=_trigger, daemon=True).start()
         allow_sleep()
@@ -394,6 +419,8 @@ class BotGUI(ctk.CTk):
         try:
             if self.bot_instance:
                 threading.Thread(target=self.bot_instance.stop, daemon=True).start()
+            stop_bolsa_worker(self.bolsa_worker_process)
+            self.bolsa_worker_process = None
             TunnelManager.stop_tunnel()
         except Exception:
             pass
@@ -415,5 +442,7 @@ class BotGUI(ctk.CTk):
 
 
 if __name__ == "__main__":
+    # Consulta GitHub en segundo plano. Un fallo de red nunca bloquea el programa.
+    start_background_update_check()
     app = BotGUI()
     app.mainloop()

@@ -245,7 +245,9 @@ def evaluate_heuristic(
     horizons = {name: score_horizon(signals, name) for name in HORIZON_WEIGHTS}
     regime = classify_regime(indicators)
     restrictions: list[str] = []
-    quote_eligible = bool(quote) and not quote.get("is_stale", True) and quote.get("quality_score", 0) >= 0.95
+    # v3.3: Umbral rebajado de 0.95→0.80 — el score típico de Yahoo diario
+    # es ~0.90 por gaps de fin de semana/festivos, y 0.95 bloqueaba TODO.
+    quote_eligible = bool(quote) and not quote.get("is_stale", True) and quote.get("quality_score", 0) >= 0.80
     if not quote_eligible:
         restrictions.append("cotización vencida o de calidad insuficiente")
     average_volume = indicators.get("average_volume_20")

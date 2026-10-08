@@ -9,11 +9,9 @@
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/flux_theme.css?v=3.1.0">
-    <link rel="stylesheet" href="/visor/style.css?v=3.1.2">
-    <!-- v2.7.2: los CDN van con defer — antes bloqueaban el primer pintado y con red lenta la página quedaba en blanco -->
-    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script defer src="/static/particle_fluid.js?v=3.1.0"></script>
-    <script defer src="/static/liquidGL.js?v=3.1.0"></script>
+    <link rel="stylesheet" href="/visor/style.css?v=4.2.0">
+    <!-- Bolsa prioriza desplazamiento fluido: esta vista no carga shaders WebGL
+         ni el motor LiquidGL; conserva el tema visual con gradientes CSS. -->
     <script defer src="https://unpkg.com/lucide@latest"></script>
     <script defer src="/static/theme-controller.js"></script>
 
@@ -58,42 +56,16 @@
                 </div>
             </div>
 
-            <!-- Controls Toolbar -->
-            <div class="toolbar">
-                <div class="control-group buttons">
-                    <button id="btn-start" class="btn primary-btn"><i class="fa-solid fa-rocket"></i> INICIAR ESCANEO</button>
-                    <button id="btn-stop" class="btn danger-btn" disabled><i data-lucide="square"></i> DETENER</button>
-                </div>
-                
-                <div class="control-group settings">
-                    <div class="setting-item">
-                        <label for="source-select">Fuente:</label>
-                        <select id="source-select" class="glass-input">
-                            <option value="sp500_nasdaq" selected>S&P500 + NASDAQ-100 (Rápido)</option>
-                            <option value="sp500">Solo S&P 500</option>
-                            <option value="nasdaq100">Solo NASDAQ-100</option>
-                            <option value="all">Todo (Lento)</option>
-                        </select>
-                    </div>
-                    <div class="setting-item">
-                        <label for="workers-slider">Workers: <span id="workers-val">25</span></label>
-                        <input type="range" id="workers-slider" min="5" max="40" value="25" class="glass-slider">
-                    </div>
-                    <div class="setting-item checkbox">
-                        <input type="checkbox" id="use-cache" checked>
-                        <label for="use-cache">Caché</label>
+            <!-- La Bolsa es un servicio automático; no requiere operación manual. -->
+            <div class="toolbar automation-toolbar" aria-live="polite">
+                <div class="automation-status-card">
+                    <span class="ai-worker-pulse" aria-hidden="true"></span>
+                    <div>
+                        <strong id="auto-scan-label"><i class="fa-solid fa-robot"></i> IA AUTOMÁTICA · SERVICIO PERMANENTE</strong>
+                        <small>Escanea, registra y verifica predicciones sin botones. Mantén abierto el servidor Python principal.</small>
                     </div>
                 </div>
-
-                <div class="control-group cache-actions">
-                    <div class="setting-item checkbox" style="margin-right: 15px;">
-                        <input type="checkbox" id="auto-scan" checked>
-                        <label for="auto-scan" style="color: #60A5FA; font-weight: 800;"><i class="fa-solid fa-robot"></i> Auto-Scan</label>
-                    </div>
-                    <span id="cache-stats" class="cache-info"><i class="fa-solid fa-bolt"></i> Cargando caché...</span>
-                    <button id="btn-clear-cache" class="btn accent-btn sm-btn" title="Limpiar Caché de Datos"><i class="fa-solid fa-trash-can"></i> Datos</button>
-                    <button id="btn-clear-ticker" class="btn accent-btn sm-btn" title="Limpiar Listas"><i class="fa-solid fa-list"></i> Listas</button>
-                </div>
+                <span id="cache-stats" class="cache-info"><i class="fa-solid fa-bolt"></i> Cargando datos del servicio...</span>
             </div>
 
             <!-- Progress Bar -->
@@ -101,9 +73,26 @@
                 <div class="progress-bar-wrapper">
                     <div id="progress-bar" class="progress-fill" style="width: 0%"></div>
                 </div>
-                <div class="progress-status" id="progress-text">Listo para iniciar escaneo estilo GBM</div>
+                <div class="progress-status" id="progress-text">Servicio automático conectado; esperando el siguiente ciclo</div>
             </div>
         </header>
+
+        <section id="maturity-banner" class="glass-panel maturity-banner is-loading" aria-live="polite" aria-labelledby="maturity-title">
+            <div class="maturity-heading">
+                <div>
+                    <span class="maturity-kicker">AVANCE VERIFICADO</span>
+                    <h2 id="maturity-title">Comprobando la fase actual…</h2>
+                </div>
+                <span id="maturity-solidity" class="maturity-solidity">Calculando solidez</span>
+            </div>
+            <div class="maturity-grid">
+                <div><span>Implementación</span><strong id="maturity-technical">12/12 técnica</strong></div>
+                <div><span>Evidencia</span><strong id="maturity-evidence">Comprobando…</strong></div>
+                <div><span>Paper trading</span><strong id="maturity-paper">Comprobando…</strong></div>
+                <div class="maturity-next"><span>Lo que sigue</span><strong id="maturity-next">Esperando diagnóstico…</strong><small id="maturity-next-detail"></small></div>
+            </div>
+            <p id="maturity-notice" class="maturity-notice">Una fase sólo avanza cuando cumple sus parámetros.</p>
+        </section>
 
         <!-- Main Content Grid -->
         <main class="content-grid">
@@ -112,7 +101,7 @@
             <section class="glass-panel tables-section">
                 
                 <div class="tabs-header" role="tablist" aria-label="Resultados del escáner">
-                    <button class="tab-btn active" data-tab="volatility-tab" role="tab" aria-controls="volatility-tab" aria-selected="true" tabindex="0"><i class="fa-solid fa-bolt"></i> Alta Volatilidad</button>
+                    <button class="tab-btn active" data-tab="volatility-tab" role="tab" aria-controls="volatility-tab" aria-selected="true" tabindex="0"><i class="fa-solid fa-bolt"></i> Top 10 Alta Volatilidad</button>
                     <button class="tab-btn" data-tab="gems-tab" role="tab" aria-controls="gems-tab" aria-selected="false" tabindex="-1"><i class="fa-solid fa-gem"></i> Cazador de Gemas</button>
                     <button class="tab-btn" data-tab="ai-tab" role="tab" aria-controls="ai-tab" aria-selected="false" tabindex="-1"><i class="fa-solid fa-brain"></i> IA Adaptativa</button>
                     <button id="btn-portfolio-shortcut" class="portfolio-shortcut-btn"><i class="fa-solid fa-briefcase"></i> Mi Portafolio ↓</button>
@@ -125,9 +114,12 @@
 
                 <!-- View Container for Volatility -->
                 <div class="tab-content active" id="volatility-tab" role="tabpanel">
+                    <div style="padding: 12px 20px; color: #f59e0b; font-size: 13px; font-weight: 700; background: rgba(245, 158, 11, 0.1); border-bottom: 1px solid var(--glass-border);">
+                        Ranking diario por volatilidad realizada. Alta volatilidad no significa compra: verifica la señal, el riesgo y los escenarios de 1, 3 y 6 meses.
+                    </div>
                     <!-- Cards Grid Container -->
                     <div id="volatility-cards-container" class="gbm-cards-grid">
-                        <div class="placeholder-text" style="grid-column: 1/-1; padding: 40px; text-align: center;">No hay datos cargados. Inicie un escaneo para ver las tarjetas estilo GBM.</div>
+                        <div class="placeholder-text" style="grid-column: 1/-1; padding: 40px; text-align: center;">Esperando resultados del próximo escaneo automático.</div>
                     </div>
                     <!-- Table Container -->
                     <div id="volatility-table-container" class="table-responsive" style="display: none;">
@@ -144,7 +136,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr class="empty-row"><td colspan="7">No hay datos. Inicie un escaneo.</td></tr>
+                                <tr class="empty-row"><td colspan="7">Esperando resultados del escaneo automático.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -180,6 +172,28 @@
 
                 <!-- AI Tab -->
                 <div class="tab-content" id="ai-tab" role="tabpanel">
+                    <section id="ai-worker-banner" class="ai-worker-banner" data-state="checking" aria-live="polite">
+                        <div class="ai-worker-status-line">
+                            <span class="ai-worker-pulse" aria-hidden="true"></span>
+                            <div>
+                                <span class="ai-worker-kicker">ESTADO DEL PROCESO</span>
+                                <h3 id="ai-worker-state">Comprobando el servidor…</h3>
+                            </div>
+                        </div>
+                        <p id="ai-worker-detail">La IA necesita que el servidor Python permanezca abierto. Puedes cerrar esta pestaña del navegador.</p>
+                        <div class="ai-worker-footer">
+                            <strong id="ai-worker-progress">Consultando predicciones…</strong>
+                            <span id="ai-worker-time">Última comprobación: pendiente</span>
+                        </div>
+                        <div id="adaptive-experiment-visual" class="adaptive-experiment-visual" data-state="checking">
+                            <span class="experiment-status-dot" aria-hidden="true"></span>
+                            <div>
+                                <strong id="experiment-visual-title">Laboratorio adaptativo: comprobando…</strong>
+                                <p id="experiment-visual-detail">Consultando la posición simulada y sus parámetros.</p>
+                            </div>
+                        </div>
+                    </section>
+
                     <div class="glass-panel" style="margin: 15px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center; background: rgba(0,0,0,0.3);">
                         <div class="stat-card">
                             <h4 style="margin:0; font-size:11px; text-transform:uppercase; color:var(--text-secondary)">Aciertos (Precisión)</h4>
@@ -203,6 +217,22 @@
                         <i class="fa-solid fa-brain"></i> <strong>Aprendizaje supervisado y auditable:</strong> Los resultados del mercado y la opinión humana se registran por separado. Ningún comentario modifica el modelo; todo ajuste requiere revisión y aprobación explícitas.
                         <button id="btn-refresh-ai" class="btn primary-btn sm-btn" style="float: right; margin-top: -4px;"><i class="fa-solid fa-sync"></i> Actualizar</button>
                     </div>
+
+                    <section id="ai-transparency-panel" class="transparency-panel" aria-live="polite" aria-labelledby="ai-transparency-title">
+                        <h3 id="ai-transparency-title">Estado operativo y evidencia</h3>
+                        <p class="placeholder-text">Cargando módulos, validación prospectiva y razones de degradación…</p>
+                    </section>
+
+                    <form id="ai-history-filters" class="history-filters" aria-label="Filtros del historial">
+                        <label>Desde <input type="date" name="date_from" class="glass-input"></label>
+                        <label>Hasta <input type="date" name="date_to" class="glass-input"></label>
+                        <label>Ticker <input name="ticker" class="glass-input" placeholder="AAPL"></label>
+                        <label>Modelo <input name="model" class="glass-input" placeholder="versión"></label>
+                        <label>Señal <select name="signal" class="glass-input"><option value="">Todas</option><option>COMPRAR</option><option>ESPERAR</option><option>MANTENER</option><option>REDUCIR</option><option>SALIR</option><option>SIN SEÑAL</option></select></label>
+                        <label>Horizonte <input name="horizon" class="glass-input" placeholder="5-20"></label>
+                        <label>Resultado <input name="result" class="glass-input" placeholder="COMPRA_EXITOSA"></label>
+                        <button type="submit" class="btn primary-btn sm-btn">Aplicar filtros</button>
+                    </form>
 
                     <div class="table-responsive">
                         <table class="data-table" id="ai-history-table">
@@ -319,6 +349,12 @@
                 </div>
             </div>
 
+            <div class="portfolio-traffic-legend" aria-label="Leyenda del semáforo del portafolio">
+                <span class="traffic-item green"><i></i><strong>VERDE</strong> Va bien; mantener y vigilar objetivo.</span>
+                <span class="traffic-item yellow"><i></i><strong>AMARILLO</strong> Esperar; faltan datos o hay riesgo moderado.</span>
+                <span class="traffic-item red"><i></i><strong>ROJO</strong> Venta o reducción prioritaria.</span>
+            </div>
+
             <!-- Formulario para agregar posiciones con diseño amplio y espacioso -->
             <div class="portfolio-controls glass-panel">
                 <div class="input-group">
@@ -373,8 +409,25 @@
     <!-- Template Tarjeta GBM -->
     <script>
     // Diagnóstico visible v2.7.7: si el JS del visor falla, muestra el error en vez de página en blanco
-    function handleGlobalError(msg) {
+    function classifyClientError(msg) {
+        var text = String(msg || 'Error sin detalle').toLowerCase();
+        if (/null|undefined|classlist|queryselector/.test(text)) return { code: 'DOM_NULL', label: 'Interfaz incompleta' };
+        if (/fetch|network|timeout|http|conexi/.test(text)) return { code: 'NETWORK_API', label: 'Red o API' };
+        if (/unauthorized|no autorizado|csrf|rate limit|429/.test(text)) return { code: 'AUTH_SECURITY', label: 'Acceso o seguridad' };
+        if (/schema|contract|nan|invalid|missing|faltante/.test(text)) return { code: 'DATA_CONTRACT', label: 'Contrato de datos' };
+        if (/ticker|quote|signal|riesgo|market|modelo/.test(text)) return { code: 'FINANCIAL_ENGINE', label: 'Motor financiero' };
+        if (/render|style|lucide|canvas|webgl/.test(text)) return { code: 'RENDERING', label: 'Renderizado' };
+        return { code: 'UNKNOWN', label: 'No clasificado' };
+    }
+    function reportClientError(payload) {
         try {
+            fetch('/api/bolsa/client-errors', { method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload), keepalive: true }).catch(function(){});
+        } catch (e) {}
+    }
+    function handleGlobalError(msg, source, line, stack) {
+        try {
+            var classified = classifyClientError(msg);
             var el = document.getElementById('bolsa-js-error');
             if (!el) {
                 el = document.createElement('div');
@@ -383,13 +436,15 @@
                 document.body.appendChild(el);
             }
             el.style.display = 'block';
-            el.textContent = 'Error JS en /bolsa: ' + msg + ' — abre /api/bolsa/health para diagnóstico';
+            el.textContent = '[' + classified.code + '] ' + classified.label + ': ' + msg + ' — diagnóstico en /api/bolsa/health';
+            reportClientError({ message: String(msg), component: 'bolsa-ui', source: source || '', line: line || null,
+                stack: String(stack || '').slice(0, 1000) });
         } catch (e) {}
     }
-    window.addEventListener('error', function(ev) { handleGlobalError(ev.message || ev.error); });
-    window.addEventListener('unhandledrejection', function(ev) { handleGlobalError(ev.reason); });
+    window.addEventListener('error', function(ev) { handleGlobalError(ev.message || ev.error, ev.filename, ev.lineno, ev.error && ev.error.stack); });
+    window.addEventListener('unhandledrejection', function(ev) { handleGlobalError(ev.reason && (ev.reason.message || ev.reason), '', null, ev.reason && ev.reason.stack); });
     </script>
-    <script src="/visor/app.js?v=3.2.0"></script>
+    <script src="/visor/app.js?v=4.2.0"></script>
     <script>try { lucide.createIcons(); } catch(e) {}</script>
     <!-- Liquid Glass macOS v2.7.7: desactivado temporalmente para Fase 0
     <script>

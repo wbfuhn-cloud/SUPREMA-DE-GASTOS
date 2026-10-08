@@ -374,7 +374,7 @@ class PredictionLedger:
                     "model_hash": row.get("Model_Hash"),
                     "risk_rules": {
                         "signal_restrictions": row.get("Signal_Restrictions", []),
-                        "data_quality_minimum": 0.95,
+                        "data_quality_minimum": 0.90,
                     },
                     "data_provider": quote["provider"],
                     "quote": quote,

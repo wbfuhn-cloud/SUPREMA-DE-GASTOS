@@ -487,13 +487,86 @@ class RecommendationDB:
             conn.close()
 
     def get_confidence_for_ticker(self, ticker: str, sector: str = '',
-                                   rsi: float = 50) -> dict:
+                                   rsi: float = 50, signal: str = '') -> dict:
         """
         Calcula un score de confianza para un ticker basado en
         el historial de tickers similares.
         """
         conn = self._get_conn()
         try:
+            # El ledger v3 es la fuente vigente. Desde octubre de 2026 las
+            # predicciones se registran aquí; consultar sólo `recommendations`
+            # dejaba la UI permanentemente en N/D pese a existir verificaciones.
+            normalized_signal = str(signal or '').upper()
+            if normalized_signal == 'SIN SEÑAL':
+                return {
+                    'available': False, 'confidence': None,
+                    'level': 'no_disponible',
+                    'notes': ['No hay una señal elegible que medir'],
+                    'sample_size': 0, 'direct_history': 0,
+                    'source': 'prediction_ledger_v3',
+                }
+            signal_group = (
+                ('COMPRAR', 'MANTENER') if normalized_signal in {'COMPRAR', 'MANTENER'}
+                else ('SALIR', 'REDUCIR') if normalized_signal in {'SALIR', 'REDUCIR'}
+                else ('MANTENER/ESPERAR', 'ESPERAR')
+            )
+            placeholders = ','.join('?' for _ in signal_group)
+            success_sql = """
+                CASE
+                  WHEN r.market_label IN ('COMPRA_EXITOSA','SALIDA_CORRECTA') THEN 1
+                  WHEN p.signal IN ('MANTENER/ESPERAR','ESPERAR')
+                       AND r.net_return BETWEEN r.negative_threshold AND r.positive_threshold THEN 1
+                  ELSE 0
+                END
+            """
+            labeled_sql = """
+                r.status='VERIFIED' AND r.net_return IS NOT NULL
+                AND r.positive_threshold IS NOT NULL AND r.negative_threshold IS NOT NULL
+            """
+            direct_v3 = conn.execute(f"""
+                SELECT COUNT(*) total, SUM({success_sql}) good
+                FROM predictions_v3 p JOIN prediction_results_v3 r USING(prediction_id)
+                WHERE {labeled_sql} AND p.symbol=? AND p.signal IN ({placeholders})
+            """, (ticker, *signal_group)).fetchone()
+            similar_v3 = conn.execute(f"""
+                SELECT COUNT(*) total, SUM({success_sql}) good
+                FROM predictions_v3 p JOIN prediction_results_v3 r USING(prediction_id)
+                WHERE {labeled_sql} AND p.signal IN ({placeholders})
+                  AND CAST(json_extract(p.features_json, '$.rsi') AS REAL) BETWEEN ? AND ?
+            """, (*signal_group, float(rsi) - 10, float(rsi) + 10)).fetchone()
+
+            v3_rates = []
+            v3_notes = []
+            direct_total = int(direct_v3['total'] or 0)
+            similar_total = int(similar_v3['total'] or 0)
+            if direct_total >= 3:
+                direct_good = int(direct_v3['good'] or 0)
+                v3_rates.append((direct_good / direct_total * 100, 0.65, direct_total))
+                v3_notes.append(f"Historial directo: {direct_good}/{direct_total} consistentes")
+            elif direct_total:
+                v3_notes.append(f"Historial directo aún pequeño: {direct_total}/3")
+            # Exigimos al menos 10 comparables para que el agregado no parezca
+            # una probabilidad precisa basada en una muestra diminuta.
+            if similar_total >= 10:
+                similar_good = int(similar_v3['good'] or 0)
+                v3_rates.append((similar_good / similar_total * 100, 0.35, similar_total))
+                v3_notes.append(f"RSI y señal similares: {similar_good}/{similar_total}")
+            if v3_rates:
+                total_weight = sum(weight for _, weight, _ in v3_rates)
+                confidence = sum(rate * weight for rate, weight, _ in v3_rates) / total_weight
+                sample_size = sum(samples for _, _, samples in v3_rates)
+                confidence = max(5, min(99, confidence))
+                return {
+                    'available': True,
+                    'confidence': round(confidence, 1),
+                    'level': 'alta' if confidence >= 70 else 'media' if confidence >= 40 else 'baja',
+                    'notes': v3_notes,
+                    'sample_size': sample_size,
+                    'direct_history': direct_total,
+                    'source': 'prediction_ledger_v3',
+                }
+
             # 1. Historial directo del ticker
             direct = conn.execute("""
                 SELECT COUNT(*) as total,
@@ -653,6 +726,17 @@ class AdaptiveLearner:
     def record_scan_results(self, results: list, top_n: int = 50):
         """Registra predicciones append-only y separadas por horizonte."""
         prediction_ids = self.ledger.record_scan_results(results, top_n=top_n)
+        eligible = sum(row.get("Signal_Eligible") is True for row in results)
+        quoted = sum(
+            row.get("Signal_Eligible") is True
+            and bool((row.get("Quote") or {}).get("market_timestamp"))
+            and bool((row.get("Quote") or {}).get("provider"))
+            for row in results
+        )
+        logger.info(
+            "Diagnóstico de registro: resultados=%d, elegibles=%d, cotizaciones_validas=%d.",
+            len(results), eligible, quoted,
+        )
         logger.info(f"🧠 Registradas {len(prediction_ids)} predicciones inmutables del escaneo.")
         return prediction_ids
 
@@ -670,9 +754,10 @@ class AdaptiveLearner:
         logger.info(f"🧠 Verificación temporal completada: {summary}")
         return summary
 
-    def get_confidence(self, ticker: str, sector: str = '', rsi: float = 50) -> dict:
+    def get_confidence(self, ticker: str, sector: str = '', rsi: float = 50,
+                       signal: str = '') -> dict:
         """Obtiene el score de confianza para un ticker."""
-        return self.db.get_confidence_for_ticker(ticker, sector, rsi)
+        return self.db.get_confidence_for_ticker(ticker, sector, rsi, signal)
 
     def get_stats(self) -> dict:
         """Retorna estadísticas del learner."""

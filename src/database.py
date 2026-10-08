@@ -15,9 +15,17 @@ except ImportError:
 
 class BaseDatabaseManager:
     """Clase base para asegurar la compatibilidad de métodos."""
+    storage_mode = "unknown"
     def add_expense(self, data: Dict) -> Tuple[bool, str]: pass
     def update_expense(self, expense_id: int, data: Dict) -> Tuple[bool, str]: pass
     def delete_expense(self, expense_id: int) -> Tuple[bool, str]: pass
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]: pass
+    def set_setting(self, key: str, value: str) -> Tuple[bool, str]: pass
+    def get_setting_status(self, key: str) -> Tuple[bool, Optional[str]]:
+        try:
+            return True, self.get_setting(key)
+        except Exception:
+            return False, None
 
 SPANISH_MONTHS = [
     'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
@@ -61,6 +69,7 @@ def _normalize_expense_data(data: Dict) -> Dict:
 
 class LocalDatabaseManager(BaseDatabaseManager):
     """Implementación original con SQLite local."""
+    storage_mode = "local"
     _PROTECTED_CATEGORIES = frozenset({"GENERAL", "ADMIN", "MANTENIMIENTO"})
 
     def __init__(self, db_path: Optional[str] = None):
@@ -283,6 +292,15 @@ class LocalDatabaseManager(BaseDatabaseManager):
             self._logger.error(f"Error getting setting {key}: {e}")
             return default
 
+    def get_setting_status(self, key: str) -> Tuple[bool, Optional[str]]:
+        try:
+            conn = self._get_connection()
+            row = conn.execute('SELECT value FROM app_settings WHERE key = ?', (key,)).fetchone()
+            return True, row['value'] if row else None
+        except sqlite3.Error as exc:
+            self._logger.error("Error getting setting %s: %s", key, exc)
+            return False, None
+
     def set_setting(self, key: str, value: str) -> Tuple[bool, str]:
         with self._write_lock:
             conn = self._get_connection()
@@ -360,6 +378,7 @@ class LocalDatabaseManager(BaseDatabaseManager):
 
 class CloudflareDatabaseManager(BaseDatabaseManager):
     """Implementación conectada a Cloudflare D1 vía HTTP REST API."""
+    storage_mode = "cloud"
 
     def __init__(self, account_id: str, db_id: str, api_token: str):
         self._logger = logging.getLogger(self.__class__.__name__)
@@ -529,6 +548,29 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
     def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
         res = self._query('SELECT value FROM app_settings WHERE key = ?', [key])
         return res[0]['value'] if res else default
+
+    def get_setting_status(self, key: str) -> Tuple[bool, Optional[str]]:
+        """Distingue una clave inexistente de una falla de conexión con D1."""
+        if not httpx:
+            return False, None
+        try:
+            response = httpx.post(
+                self.url,
+                headers=self.headers,
+                json={"sql": "SELECT value FROM app_settings WHERE key = ?", "params": [key]},
+                timeout=10.0,
+            )
+            if response.status_code != 200:
+                self._logger.error("Error D1 HTTP %s leyendo ajuste %s", response.status_code, key)
+                return False, None
+            data = response.json()
+            if not data.get("success") or not data.get("result"):
+                return False, None
+            rows = data["result"][0].get("results", [])
+            return True, rows[0].get("value") if rows else None
+        except Exception as exc:
+            self._logger.error("Excepción D1 leyendo ajuste %s: %s", key, exc)
+            return False, None
 
     def set_setting(self, key: str, value: str) -> Tuple[bool, str]:
         success = self._execute('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP', [key, value])

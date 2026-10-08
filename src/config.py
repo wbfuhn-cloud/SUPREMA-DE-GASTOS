@@ -25,9 +25,9 @@ class Config:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
     
-    # URL del Dashboard (Tailscale IP)
-    # Si no esta en .env, usa la IP hardcodeada (fallback) o localhost en logica posterior
-    DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://100.72.203.47:5050/dashboard")
+    # URL del Dashboard — se establece dinámicamente al arrancar (app.py).
+    # El fallback usa localhost:5050; la IP real de red se detecta automáticamente.
+    DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://127.0.0.1:5050/dashboard")
 
     # Configuración de Unidades (DEPRECATED)
     UNITS_CONFIG_PATH = os.path.join(BASE_DIR, "src", "units_config.json")

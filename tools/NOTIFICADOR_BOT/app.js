@@ -35,19 +35,8 @@ function escapeHtml(value) {
 }
 
 // Elements
-const btnStart = document.getElementById("btn-start");
-const btnStop = document.getElementById("btn-stop");
-const btnClearCache = document.getElementById("btn-clear-cache");
-const btnClearTicker = document.getElementById("btn-clear-ticker");
-const sourceSelect = document.getElementById("source-select");
-const workersSlider = document.getElementById("workers-slider");
-const workersVal = document.getElementById("workers-val");
-const useCacheChk = document.getElementById("use-cache");
-const sourceSubtitle = document.getElementById("source-subtitle");
 const marketStatus = document.getElementById("market-status");
 const cacheStats = document.getElementById("cache-stats");
-const progressBar = document.getElementById("progress-bar");
-const progressText = document.getElementById("progress-text");
 
 const tabBtns = document.querySelectorAll(".tab-btn[data-tab]");
 const tabContents = document.querySelectorAll(".tab-content");
@@ -57,8 +46,6 @@ const volatilityTableBody = document.querySelector("#volatility-table tbody");
 const gemsTableBody = document.querySelector("#gems-table tbody");
 const riskOutput = document.getElementById("risk-output");
 const detailsContent = document.getElementById("details-content");
-const autoScanChk = document.getElementById("auto-scan");
-
 const tslaMonitor = document.getElementById("tsla-monitor");
 const tslaContent = document.getElementById("tsla-content");
 
@@ -68,10 +55,26 @@ const searchTicker = { value: '', addEventListener: () => {} };
 
 // State
 let isScanning = false;
+let topHighVolatility = [];
+let dailyGems = [];
 let statusInterval = null;
-let autoScanInterval = null;
 let allResults = [];
 let selectedTickerData = null;
+
+// El documento usa .page-content como scroller. Durante el movimiento se
+// suspenden transiciones y sombras costosas; se restauran al quedar inactivo.
+const pageScroller = document.querySelector('.page-content');
+let scrollIdleTimer = null;
+if (pageScroller) {
+    pageScroller.addEventListener('scroll', () => {
+        document.documentElement.classList.add('is-scrolling');
+        if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
+        scrollIdleTimer = setTimeout(() => {
+            document.documentElement.classList.remove('is-scrolling');
+            scrollIdleTimer = null;
+        }, 120);
+    }, { passive: true });
+}
 
 function hasNumericValue(value) {
     return value !== null && value !== undefined && Number.isFinite(Number(value));
@@ -158,42 +161,30 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // 3. Cargar estado de escaneo
     await checkScanStatus();
+    startStatusPolling();
     
-    // 4. Si el auto-scan está activo en la UI pero el servidor está libre y sin datos, sugerir inicio
-    if (autoScanChk && autoScanChk.checked && !isScanning && allResults.length === 0) {
-        console.log("Auto-Scan activo y sin datos: Iniciando escaneo inicial...");
-        startScan();
-    }
-    
-    // 4. Cargar portafolio desde la API (sincronizado con el bot)
+    // 4. El programador del servidor decide cuándo escanear para no contaminar
+    // la evidencia con datos fuera de sesión.
+    // Cargar portafolio desde la API (sincronizado con el bot)
     try {
         const res = await fetch(`${API_URL}/portfolio/config`);
         const data = await res.json();
         if (!res.ok || data.status === 'error') {
             throw new Error(data.message || `HTTP ${res.status}`);
         }
+        renderPortfolioSnapshot(data.portfolio || {});
+        if (data.sync && data.sync.backend === 'cloud' && !data.sync.synchronized) {
+            showToast('Portafolio cargado desde respaldo local; la nube no está disponible.', 'warning');
+        }
     } catch (e) {
         console.error("Error cargando portafolio:", e);
     }
 
     // 5. Cargar y analizar portafolio automáticamente al iniciar
-    analyzePortfolio();
+    await Promise.all([analyzePortfolio(), loadMaturityStatus()]);
 });
 
 // Event Listeners (v2.7.1: guards null — un elemento faltante tumbaba todo el visor en blanco)
-if (workersSlider && workersVal) workersSlider.addEventListener("input", (e) => { workersVal.textContent = e.target.value; });
-if (sourceSelect && sourceSubtitle) sourceSelect.addEventListener("change", (e) => {
-    try {
-        const text = e.target.options[e.target.selectedIndex].text;
-        sourceSubtitle.textContent = `${text} (OPTIMIZADO)`;
-    } catch (err) { /* noop */ }
-});
-
-if (btnStart) btnStart.addEventListener("click", startScan);
-if (btnStop) btnStop.addEventListener("click", stopScan);
-if (btnClearCache) btnClearCache.addEventListener("click", () => clearCache("data"));
-if (btnClearTicker) btnClearTicker.addEventListener("click", () => clearCache("tickers"));
-
 // Portfolio elements
 const btnAddPortfolio = document.getElementById("btn-add-portfolio");
 const portTicker = document.getElementById("port-ticker");
@@ -211,7 +202,8 @@ tabBtns.forEach(btn => {
         const tabId = btn.dataset.tab;
         if (!activateTab(tabId, btn)) return;
         if (tabId === 'ai-tab') {
-            await Promise.all([loadLearnerStats(), loadLearnerHistory()]);
+            startAdaptiveWorkerHeartbeat();
+            await Promise.all([loadLearnerStats(), loadLearnerHistory(), loadTransparencyStatus(), loadAdaptiveExperimentStatus()]);
         }
     });
     btn.addEventListener("keydown", event => {
@@ -236,7 +228,55 @@ if (btnRefreshAi) {
     btnRefreshAi.addEventListener("click", () => {
         loadLearnerStats();
         loadLearnerHistory();
+        loadTransparencyStatus();
+        loadMaturityStatus();
     });
+}
+
+async function loadMaturityStatus() {
+    const banner = document.getElementById('maturity-banner');
+    if (!banner) return;
+    try {
+        const response = await fetch(`${API_URL}/bolsa/maturity`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
+        const maturity = data.maturity || {};
+        const phase = maturity.current_phase || {};
+        const solidity = maturity.solidity || {};
+        const evidence = maturity.evidence || {};
+        const sessions = evidence.market_sessions || {};
+        const signals = evidence.eligible_signals || {};
+        const quality = evidence.data_quality || {};
+        const qualityText = quality.average === null || quality.average === undefined
+            ? 'Sin muestra actual'
+            : `Calidad ${(Number(quality.average) * 100).toFixed(0)}% · ${quality.passing}/${quality.observed} aptos`;
+
+        banner.dataset.level = solidity.level || 'EXPERIMENTAL';
+        banner.classList.remove('is-loading');
+        const title = document.getElementById('maturity-title');
+        const solid = document.getElementById('maturity-solidity');
+        const technical = document.getElementById('maturity-technical');
+        const evidenceEl = document.getElementById('maturity-evidence');
+        const paper = document.getElementById('maturity-paper');
+        const next = document.getElementById('maturity-next');
+        const nextDetail = document.getElementById('maturity-next-detail');
+        const notice = document.getElementById('maturity-notice');
+        if (title) title.textContent = `Fase ${phase.number ?? '—'} · ${phase.name || 'Estado no disponible'}`;
+        if (solid) solid.textContent = `${solidity.label || 'Sin evaluar'} · ${solidity.score ?? 0}%`;
+        if (technical) technical.textContent = `${maturity.technical?.completed ?? 0}/${maturity.technical?.total ?? 12} · ${maturity.technical?.label || ''}`;
+        if (evidenceEl) evidenceEl.textContent = qualityText;
+        if (paper) paper.textContent = `${sessions.current ?? 0}/${sessions.required ?? 60} sesiones · ${signals.current ?? 0}/${signals.required ?? 300} señales`;
+        if (next) next.textContent = maturity.next_step?.label || 'Completar gates pendientes';
+        if (nextDetail) nextDetail.textContent = maturity.next_step?.detail || '';
+        if (notice) notice.textContent = `${maturity.notice || ''} Dinero real: ${solidity.real_money_enabled ? 'habilitado' : 'NO habilitado'}.`;
+    } catch (error) {
+        banner.dataset.level = 'EXPERIMENTAL';
+        const title = document.getElementById('maturity-title');
+        const next = document.getElementById('maturity-next');
+        if (title) title.textContent = 'Fase no verificable';
+        if (next) next.textContent = 'Restablecer el diagnóstico antes de avanzar';
+        console.error('Error loading maturity status', error);
+    }
 }
 
 const btnFeedbackBad = document.getElementById("btn-feedback-bad");
@@ -280,6 +320,86 @@ async function submitStructuredFeedback(feedback) {
 if (btnFeedbackBad) btnFeedbackBad.addEventListener("click", () => submitStructuredFeedback('negative'));
 if (btnFeedbackGood) btnFeedbackGood.addEventListener("click", () => submitStructuredFeedback('positive'));
 
+let adaptiveWorkerHeartbeat = null;
+
+function updateAdaptiveWorkerBanner(state, stats = {}) {
+    const banner = document.getElementById('ai-worker-banner');
+    const stateEl = document.getElementById('ai-worker-state');
+    const detailEl = document.getElementById('ai-worker-detail');
+    const progressEl = document.getElementById('ai-worker-progress');
+    const timeEl = document.getElementById('ai-worker-time');
+    if (!banner || !stateEl || !detailEl || !progressEl || !timeEl) return;
+
+    const recommendations = Number(stats.total_recommendations || 0);
+    const pending = Number(stats.pending || 0);
+    const verified = Number(stats.verified || 0);
+    banner.dataset.state = state;
+
+    if (state === 'offline') {
+        stateEl.textContent = 'DETENIDO O SIN CONEXIÓN';
+        detailEl.textContent = 'El servidor Python no responde. Abre o reinicia el servidor para continuar el monitoreo y el aprendizaje.';
+        progressEl.textContent = 'No se pueden consultar las predicciones';
+    } else if (verified > 0) {
+        stateEl.textContent = 'APRENDIZAJE ACTIVO';
+        detailEl.textContent = 'El servidor Python está trabajando y ya tiene resultados verificados. No cierres el servidor; puedes cerrar esta pestaña.';
+        progressEl.textContent = `${recommendations} registradas · ${pending} pendientes · ${verified} verificadas`;
+    } else if (pending > 0 || recommendations > 0) {
+        stateEl.textContent = 'TRABAJANDO · ESPERANDO RESULTADOS';
+        detailEl.textContent = 'El servidor Python está siguiendo predicciones todavía abiertas. No cierres el servidor; puedes cerrar esta pestaña.';
+        progressEl.textContent = `${recommendations} registradas · ${pending} pendientes · 0 verificadas`;
+    } else {
+        stateEl.textContent = 'SERVIDOR CONECTADO · ESPERANDO PREDICCIONES';
+        detailEl.textContent = 'El proceso está disponible, pero aún no tiene predicciones auditables. Mantén abierto el servidor Python; puedes cerrar esta pestaña.';
+        progressEl.textContent = '0 registradas · 0 pendientes · 0 verificadas';
+    }
+    timeEl.textContent = `Última comprobación: ${new Date().toLocaleTimeString()}`;
+}
+
+function startAdaptiveWorkerHeartbeat() {
+    if (adaptiveWorkerHeartbeat) return;
+    adaptiveWorkerHeartbeat = setInterval(() => {
+        loadLearnerStats();
+        loadAdaptiveExperimentStatus();
+    }, 30000);
+}
+
+async function loadAdaptiveExperimentStatus() {
+    const card = document.getElementById('adaptive-experiment-visual');
+    const title = document.getElementById('experiment-visual-title');
+    const detail = document.getElementById('experiment-visual-detail');
+    if (!card || !title || !detail) return;
+    try {
+        const [experimentResponse, scanResponse] = await Promise.all([
+            fetch(`${API_URL}/bolsa/adaptive-experiment`),
+            fetch(`${API_URL}/scan/status`),
+        ]);
+        const experimentData = await experimentResponse.json();
+        const scanData = await scanResponse.json();
+        if (!experimentResponse.ok || experimentData.status !== 'ok') {
+            throw new Error(experimentData.message || `HTTP ${experimentResponse.status}`);
+        }
+        const experiment = experimentData.experiment || {};
+        const position = experiment.open_position;
+        const automation = scanData.automation || {};
+        if (position) {
+            const entry = Number(position.entry_price || 0);
+            const current = Number(position.current_price || entry);
+            const performance = entry > 0 ? ((current / entry) - 1) * 100 : 0;
+            card.dataset.state = 'active';
+            title.textContent = `APRENDIENDO · ${position.ticker} · ${performance >= 0 ? '+' : ''}${performance.toFixed(2)}%`;
+            detail.textContent = `Entrada simulada $${entry.toFixed(2)} · ${position.horizon_sessions} sesiones · vence ${position.due_session} · parámetros v${experiment.parameter_version} · mercado ${automation.market_open ? 'abierto' : 'cerrado'}`;
+        } else {
+            card.dataset.state = 'idle';
+            title.textContent = 'ACTIVA · BUSCANDO CANDIDATA';
+            detail.textContent = `Sin posición simulada abierta · parámetros v${experiment.parameter_version || 1} · mercado ${automation.market_open ? 'abierto' : 'cerrado'}`;
+        }
+    } catch (error) {
+        card.dataset.state = 'offline';
+        title.textContent = 'LABORATORIO SIN CONEXIÓN';
+        detail.textContent = `No fue posible consultar el proceso: ${error.message}`;
+    }
+}
+
 async function loadLearnerStats() {
     const accuracyEl = document.getElementById('ai-accuracy');
     const avgEl = document.getElementById('ai-avg-change');
@@ -291,6 +411,7 @@ async function loadLearnerStats() {
         const data = await res.json();
         if (!res.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${res.status}`);
         if (data.status === 'ok') {
+            updateAdaptiveWorkerBanner('online', data.stats || {});
             const hasVerified = Number(data.stats.verified) > 0;
             accuracyEl.textContent = hasVerified && data.stats.accuracy_pct !== null ? `${data.stats.accuracy_pct}%` : 'N/D';
             
@@ -311,11 +432,44 @@ async function loadLearnerStats() {
             if (mlAccEl && metrics.full_precision) {
                 mlAccEl.title = `Modelo ML GradientBoosting: ${metrics.samples_total} muestras | AUC: ${metrics.auc_score}%`;
             }
+        } else if (mlData.status === 'ok' && mlData.ml) {
+            accuracyEl.title = `Modelo no aprobado para producción: ${mlData.ml.degraded_reason || 'sin validación temporal'}. Se usa únicamente el motor heurístico.`;
         }
     } catch (e) {
         console.error("Error loading learner stats", e);
+        updateAdaptiveWorkerBanner('offline');
         [accuracyEl, avgEl, verifiedEl, adjustmentsEl].forEach(el => { if (el) el.textContent = 'Error'; });
         showToast("No fue posible cargar las métricas de aprendizaje.", "error");
+    }
+}
+
+async function loadTransparencyStatus() {
+    const panel = document.getElementById('ai-transparency-panel');
+    if (!panel) return;
+    try {
+        const response = await fetch(`${API_URL}/bolsa/transparency`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
+        const ai = data.adaptive_ai || {};
+        const paper = data.paper_trading || {};
+        const modules = ai.modules || {};
+        const metrics = paper.metrics || {};
+        panel.innerHTML = `
+            <h3 id="ai-transparency-title">Estado operativo y evidencia</h3>
+            <div class="transparency-grid">
+                <div><strong>Operación</strong><span>${escapeHtml(ai.operational_state || 'N/D')}</span></div>
+                <div><strong>Heurística</strong><span>${escapeHtml(modules.heuristic || 'N/D')}</span></div>
+                <div><strong>ML</strong><span>${escapeHtml(modules.ml || 'N/D')}</span></div>
+                <div><strong>Fourier</strong><span>${escapeHtml(modules.fourier || 'N/D')}</span></div>
+                <div><strong>Último entrenamiento</strong><span>${escapeHtml(ai.last_training || 'N/D')}</span></div>
+                <div><strong>Predicciones verificadas</strong><span>${escapeHtml(ai.verified_predictions ?? 'N/D')}</span></div>
+                <div><strong>Paper trading</strong><span>${escapeHtml(metrics.market_sessions ?? 0)} sesiones · ${escapeHtml(metrics.eligible_signals ?? 0)} señales</span></div>
+                <div><strong>Gate</strong><span>${escapeHtml(paper.approval?.decision || 'N/D')}</span></div>
+            </div>
+            <p><strong>Razón de degradación:</strong> ${escapeHtml(ai.degradation_reason || 'N/D')}</p>
+            <p class="financial-disclaimer">Análisis educativo. No garantiza resultados ni constituye asesoría financiera.</p>`;
+    } catch (error) {
+        panel.innerHTML = `<h3 id="ai-transparency-title">Estado operativo y evidencia</h3><p class="signal-blocked">No disponible: ${escapeHtml(error.message)}</p>`;
     }
 }
 
@@ -325,7 +479,9 @@ async function loadLearnerHistory() {
     
     tbody.innerHTML = `<tr><td colspan="6"><i data-lucide="loader" class="lucide-spin"></i> Cargando historial...</td></tr>`;
     try {
-        const res = await fetch(`${API_URL}/learner/history`);
+        const form = document.getElementById('ai-history-filters');
+        const query = form ? new URLSearchParams(new FormData(form)).toString() : '';
+        const res = await fetch(`${API_URL}/learner/history${query ? `?${query}` : ''}`);
         const data = await res.json();
         if (data.status === 'ok') {
             tbody.innerHTML = '';
@@ -368,6 +524,12 @@ async function loadLearnerHistory() {
     }
 }
 
+const aiHistoryFilters = document.getElementById('ai-history-filters');
+if (aiHistoryFilters) aiHistoryFilters.addEventListener('submit', event => {
+    event.preventDefault();
+    loadLearnerHistory();
+});
+
 filterViability.addEventListener("change", renderTables);
 searchTicker.addEventListener("input", renderTables);
 
@@ -377,77 +539,15 @@ document.querySelectorAll(".risk-inputs input").forEach(input => {
     });
 });
 
-autoScanChk.addEventListener("change", (e) => {
-    // El auto-scan ahora se gestiona principalmente en el servidor
-    // pero permitimos al usuario forzar un inicio si lo desea
-    if(e.target.checked && !isScanning) {
-        startScan();
-    }
-});
-
 // API Calls
 async function updateCacheStats() {
     try {
         const res = await fetch(`${API_URL}/cache/stats`);
         const data = await res.json();
         const dCache = data.data_cache;
-        cacheStats.innerHTML = `<i data-lucide="zap"></i> Caché: ${dCache.total_tickers} stocks | ${dCache.total_size_mb.toFixed(1)} MB | Listas: ${data.ticker_cache.cached_sources}`;
+        if (cacheStats) cacheStats.innerHTML = `<i data-lucide="zap"></i> Caché: ${dCache.total_tickers} stocks | ${dCache.total_size_mb.toFixed(1)} MB | Listas: ${data.ticker_cache.cached_sources}`;
     } catch (e) {
         console.error("Error fetching cache stats", e);
-    }
-}
-
-async function clearCache(target) {
-    if(!await requestConfirmation(`¿Limpiar la caché de ${target}?`)) return;
-    try {
-        const response = await fetch(`${API_URL}/cache/clear`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ target })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        updateCacheStats();
-        showToast("Caché limpiada correctamente.", "success");
-    } catch (e) {
-        console.error("Error clearing cache", e);
-        showToast("No fue posible limpiar la caché.", "error");
-    }
-}
-
-async function startScan() {
-    try {
-        // sp500_nasdaq = combinar ambas fuentes en el backend
-        let source = sourceSelect.value;
-        if (source === 'sp500_nasdaq') source = 'sp500_nasdaq';
-
-        const res = await fetch(`${API_URL}/scan/start`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                source: source,
-                max_workers: parseInt(workersSlider.value),
-                use_cache: useCacheChk.checked
-            })
-        });
-        
-        if(res.ok) {
-            btnStart.disabled = true;
-            btnStop.disabled = false;
-            allResults = [];
-            renderTables();
-            isScanning = true;
-            startStatusPolling();
-        }
-    } catch (e) {
-        console.error("Error starting scan", e);
-    }
-}
-
-async function stopScan() {
-    try {
-        await fetch(`${API_URL}/scan/stop`, { method: "POST" });
-    } catch (e) {
-        console.error("Error stopping scan", e);
     }
 }
 
@@ -463,26 +563,58 @@ async function handleAddPortfolio() {
     
     btnAddPortfolio.disabled = true;
     try {
-        await fetch(`${API_URL}/portfolio/update`, {
+        const response = await fetch(`${API_URL}/portfolio/update`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ticker, qty, price })
         });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
         portTicker.value = "";
         portPrice.value = "";
-        analyzePortfolio();
+        await analyzePortfolio();
+        const cloudOk = data.sync && data.sync.synchronized;
+        showToast(cloudOk
+            ? `${ticker} quedó guardado y sincronizado en la nube.`
+            : `${ticker} quedó guardado sólo en este dispositivo.`, cloudOk ? "success" : "warning");
     } catch (e) {
         console.error("Error adding to portfolio", e);
+        showToast(`No fue posible guardar ${ticker}.`, "error");
     }
     btnAddPortfolio.disabled = false;
 }
 
+function renderPortfolioSnapshot(portfolio) {
+    if (!portfolioTbody || !portfolio || Array.isArray(portfolio)) return;
+    const entries = Object.entries(portfolio);
+    if (entries.length === 0) return;
+    portfolioTbody.innerHTML = '';
+    entries.forEach(([ticker, position]) => {
+        const qty = Number(position?.qty) || 0;
+        const entry = Number(position?.avg_price) || 0;
+        const tr = document.createElement('tr');
+        tr.dataset.portfolioSnapshot = 'true';
+        tr.innerHTML = `
+            <td><strong style="font-size:16px;color:var(--text-primary);">${escapeHtml(ticker)}</strong></td>
+            <td><strong>${qty}</strong> acc<br><small>@ $${entry.toFixed(2)} USD</small></td>
+            <td colspan="3" style="color:var(--text-secondary);">Posición guardada · actualizando cotización y análisis…</td>
+            <td></td>`;
+        portfolioTbody.appendChild(tr);
+    });
+    const totalCountEl = document.getElementById('port-total-count');
+    if (totalCountEl) totalCountEl.textContent = `${entries.length} activos`;
+}
+
 async function analyzePortfolio() {
     if (!portfolioTbody) return;
-    portfolioTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 28px; color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin" style="margin-right:8px; color:var(--primary-color)"></i> Analizando Cartera en tiempo real...</td></tr>`;
+    const hasVisibleHoldings = Boolean(portfolioTbody.querySelector('tr[data-portfolio-snapshot], tr[data-portfolio-analyzed]'));
+    portfolioTbody.setAttribute('aria-busy', 'true');
+    if (!hasVisibleHoldings) {
+        portfolioTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 28px; color:var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin" style="margin-right:8px; color:var(--primary-color)"></i> Analizando Cartera en tiempo real...</td></tr>`;
+    }
     
     try {
-        const res = await fetch(`${API_URL}/portfolio/analyze`, { method: "POST" });
+        const res = await fetch(`${API_URL}/portfolio/analyze`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
         
@@ -506,10 +638,22 @@ async function analyzePortfolio() {
 
             data.results.forEach(row => {
                 const tr = document.createElement('tr');
-                if (row.error) {
+                tr.dataset.portfolioAnalyzed = 'true';
+                const positionStatus = row.portfolio_status || {
+                    color: 'yellow', label: 'ESPERAR / VALIDAR',
+                    reason: row.error || 'No existe evidencia suficiente.',
+                    summary: 'ESPERA: faltan datos para emitir una acción responsable.',
+                    monitoring_note: 'Actualizaré el resumen cuando existan datos confiables.',
+                    confidence: 'insuficiente'
+                };
+                tr.classList.add(`portfolio-row-${positionStatus.color || 'yellow'}`);
+                if (row.error && !hasNumericValue(row.price)) {
                     tr.innerHTML = `
                         <td><strong style="font-size:15px; color:var(--text-primary);">${escapeHtml(row.ticker)}</strong></td>
-                        <td colspan="4" style="color:var(--danger-color); font-weight:600;">${escapeHtml(row.error)}</td>
+                        <td><strong>${escapeHtml(row.qty ?? '—')}</strong> acc<br><small>@ $${hasNumericValue(row.entry_price) ? Number(row.entry_price).toFixed(2) : '—'} USD</small></td>
+                        <td style="color:var(--text-secondary);">N/D</td>
+                        <td><span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span><strong class="portfolio-action-summary">${escapeHtml(positionStatus.summary || positionStatus.reason)}</strong><small class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}</small></td>
+                        <td style="color:var(--text-secondary);">No calculable</td>
                         <td style="text-align:center;">
                             <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar"><i class="fa-solid fa-trash-can"></i></button>
                         </td>
@@ -527,14 +671,17 @@ async function analyzePortfolio() {
                     const plColor = plPct >= 0 ? "var(--success-color)" : "var(--danger-color)";
                     const plSign = plPct >= 0 ? "+" : "";
 
-                    if (row.pl_val !== undefined && row.entry_price > 0 && row.qty > 0) {
+                    if (row.pl_val !== undefined && row.entry_price > 0 && row.qty > 0 && row.pnl_reliable !== false) {
                         totalPlUsd += plVal;
                         totalCostUsd += (Number(row.entry_price) * Number(row.qty));
                         hasValidCost = true;
                     }
 
                     const levFlag = row.is_leveraged ? ' <span class="badge evitar" style="font-size:10px; margin-left:6px; letter-spacing:0.4px;">APALANCADO</span>' : '';
-                    const reasonsList = Array.isArray(row.reasons) ? row.reasons.join(" • ") : "";
+                    const reasons = Array.isArray(row.reasons) ? [...row.reasons] : [];
+                    if (row.error) reasons.unshift(row.error);
+                    const reasonsList = reasons.join(" • ");
+                    const pnlValidationLabel = row.pnl_reliable === false ? '<span class="pnl-unverified">NO VALIDADO</span>' : '';
 
                     tr.innerHTML = `
                         <td>
@@ -553,8 +700,12 @@ async function analyzePortfolio() {
                         </td>
                         <td>
                             <div style="display:flex; flex-direction:column; gap:4px; max-width:320px;">
-                                <span class="badge ${badgeClass}" style="width:fit-content; font-size:11px; padding:4px 10px; letter-spacing:0.3px;">${escapeHtml(row.verdict || 'EVALUANDO')}</span>
-                                ${reasonsList ? `<span style="font-size:11px; color:var(--text-secondary); line-height:1.35; white-space:normal;" title="${escapeHtml(reasonsList)}">${escapeHtml(reasonsList)}</span>` : ''}
+                                <span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span>
+                                <strong class="portfolio-action-summary">${escapeHtml(positionStatus.summary || positionStatus.reason)}</strong>
+                                <span class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}${positionStatus.confidence ? ` · Confianza ${escapeHtml(positionStatus.confidence)}` : ''}</span>
+                                ${positionStatus.monitoring_note ? `<span class="portfolio-monitoring-note">${escapeHtml(positionStatus.monitoring_note)}</span>` : ''}
+                                ${row.verdict ? `<span class="badge ${badgeClass} portfolio-engine-badge">Motor: ${escapeHtml(row.verdict)}</span>` : ''}
+                                ${reasonsList ? `<details class="portfolio-technical-details"><summary>Ver detalle técnico</summary><span>${escapeHtml(reasonsList)}</span></details>` : ''}
                             </div>
                         </td>
                         <td style="color: ${plColor}; font-weight: 800; font-size:15px;">
@@ -563,6 +714,7 @@ async function analyzePortfolio() {
                                 ${plSign}$${plVal.toFixed(2)} USD
                                 ${plMxn ? ` <span style="font-weight:500; opacity:0.8;">(${plSign}$${plMxn.toFixed(2)} MXN)</span>` : ''}
                             </div>
+                            ${pnlValidationLabel}
                         </td>
                         <td style="text-align:center;">
                             <button onclick="removePortfolioItem('${escapeHtml(row.ticker)}')" class="btn sm-btn danger-btn" title="Eliminar ${escapeHtml(row.ticker)} de la cartera" style="padding:8px 12px; border-radius:10px;">
@@ -597,7 +749,13 @@ async function analyzePortfolio() {
         }
     } catch (e) {
         console.error("Error analyzing portfolio", e);
-        portfolioTbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color); padding: 24px; text-align:center;">No se pudo cargar el portafolio. ${escapeHtml(e.message || 'Error de conexión')}</td></tr>`;
+        if (!hasVisibleHoldings) {
+            portfolioTbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color); padding: 24px; text-align:center;">No se pudo cargar el portafolio. ${escapeHtml(e.message || 'Error de conexión')}</td></tr>`;
+        } else {
+            showToast(`Tus posiciones siguen guardadas; no se pudo actualizar su análisis.`, "error");
+        }
+    } finally {
+        portfolioTbody.removeAttribute('aria-busy');
     }
 }
 
@@ -651,9 +809,13 @@ async function removePortfolioItem(ticker) {
                 ticker: ticker 
             })
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
         analyzePortfolio();
-        showToast(`${ticker} se eliminó del portafolio.`, "success");
+        const cloudOk = data.sync && data.sync.synchronized;
+        showToast(cloudOk
+            ? `${ticker} se eliminó y el cambio se sincronizó en la nube.`
+            : `${ticker} se eliminó sólo en este dispositivo.`, cloudOk ? "success" : "warning");
     } catch (e) {
         console.error("Error removing portfolio item", e);
         showToast(`No fue posible eliminar ${ticker}.`, "error");
@@ -661,8 +823,10 @@ async function removePortfolioItem(ticker) {
 }
 
 function startStatusPolling() {
-    if (statusInterval) clearInterval(statusInterval);
-    statusInterval = setInterval(checkScanStatus, 1000);
+    if (statusInterval) return;
+    // El worker puede iniciar un ciclo en cualquier momento; la página debe
+    // seguir mostrando su estado aunque el usuario nunca pulse un botón.
+    statusInterval = setInterval(checkScanStatus, 5000);
 }
 
 async function checkScanStatus() {
@@ -670,22 +834,26 @@ async function checkScanStatus() {
         const res = await fetch(`${API_URL}/scan/status`);
         const data = await res.json();
         
-        if (progressBar) progressBar.style.width = `${(data.progress || 0) * 100}%`;
-        if (progressText) progressText.textContent = data.message || '';
+        const automation = data.automation || {};
+        const autoLabel = document.getElementById('auto-scan-label');
+        if (autoLabel) {
+            const state = automation.worker_active && automation.scheduler_active ? 'ACTIVO' : 'SIN CONEXIÓN';
+            const market = automation.market_open ? 'mercado abierto' : 'esperando apertura';
+            const compute = automation.compute || {};
+            const backend = compute.backend ? ` · cálculo ${String(compute.backend).toUpperCase()}` : '';
+            autoLabel.classList.toggle('worker-offline', !automation.worker_active);
+            autoLabel.innerHTML = `<i class="fa-solid fa-robot"></i> IA AUTOMÁTICA · ${state} · ${market}${backend}`;
+            const gpu = compute.gpu?.available ? ` GPU detectada: ${compute.gpu.name}; modelo actual no compatible con CUDA.` : '';
+            autoLabel.title = `${automation.schedule || 'Programador automático del servidor'}.${gpu}`;
+        }
         
         if (!data.is_scanning && isScanning) {
             // Scan just finished
             isScanning = false;
-            clearInterval(statusInterval);
-            btnStart.disabled = false;
-            btnStop.disabled = true;
             fetchResults();
             updateCacheStats();
         } else if (data.is_scanning) {
             isScanning = true;
-            btnStart.disabled = true;
-            btnStop.disabled = false;
-            startStatusPolling(); // Asegurar que estamos polleando si está activo
         } else if (!data.is_scanning && !isScanning && allResults.length === 0) {
              // Si no hay resultados cargados pero hay disponibles en el servidor, traerlos
              if (data.results_count > 0) {
@@ -706,8 +874,11 @@ async function fetchResults() {
         const data = await res.json();
         
         allResults = data.results || [];
+        topHighVolatility = data.top_10_high_volatility || [];
+        dailyGems = data.daily_gems || [];
         updateMarketContext(data.market_context);
         renderTables();
+        await loadMaturityStatus();
     } catch (e) {
         clearTimeout(timeoutId);
         console.error("Error fetching results", e);
@@ -865,12 +1036,15 @@ function renderTables() {
         "TODAS": 0
     };
 
-    const volSorted = [...allResults].sort((a,b) => {
+    const volSorted = [...(topHighVolatility.length ? topHighVolatility : filtered)].sort((a,b) => {
+        if (a.High_Volatility_Rank && b.High_Volatility_Rank) {
+            return a.High_Volatility_Rank - b.High_Volatility_Rank;
+        }
         const pA = viabilityPriority[a.Viabilidad] || 0;
         const pB = viabilityPriority[b.Viabilidad] || 0;
         if (pA !== pB) return pB - pA;
         return (b.Volatility_Percent || 0) - (a.Volatility_Percent || 0);
-    }).slice(0, 100);
+    }).slice(0, 10);
     
     // Render GBM Cards
     renderGBMCards(document.getElementById('volatility-cards-container'), volSorted);
@@ -910,20 +1084,8 @@ function renderTables() {
     // Filter for gems: Vol_Ratio > 1.1, MACD bullish, Cap < 100B, AND RSI between 30 and 65 (Not overbought)
     // NOTE: Leveraged ETFs (SOXS, SOXL, TQQQ, etc.) are EXCLUDED because their
     // structural decay makes technical analysis unreliable for long positions.
-    const gems = [...allResults].filter(r => {
-        if (r.Is_Leveraged) return false; // NUNCA recomendar apalancados como gemas
-        const volRatio = r.Vol_Ratio || 0;
-        const macdSignal = r.MACD_Signal || r.MACD; // Fallback si no está en caché
-        const macdHist = r.MACD_Hist || 0;
-        const marketCap = r.Market_Cap || 0;
-        
-        const isGem = (volRatio >= 1.1) && 
-               (r.MACD > macdSignal || macdHist > 0 || r.MACD > 0) &&
-               (r.RSI >= 30 && r.RSI < 68) &&
-               (marketCap < 200000000000);
-               
-        return isGem;
-    }).sort((a,b) => (b.Vol_Ratio || 0) - (a.Vol_Ratio || 0)).slice(0, 50);
+    // La API aplica la misma regla canónica usada por Telegram.
+    const gems = [...dailyGems];
     
     console.log("Gemas encontradas:", gems.length);
     renderGBMCards(document.getElementById('gems-cards-container'), gems);
@@ -959,7 +1121,7 @@ function renderTables() {
 function selectTicker(row, trElement) {
     // Highlight row
     document.querySelectorAll(".data-table tbody tr").forEach(tr => tr.classList.remove("selected"));
-    trElement.classList.add("selected");
+    if (trElement && trElement.classList) trElement.classList.add("selected");
     
     selectedTickerData = row;
     
@@ -979,7 +1141,7 @@ function selectTicker(row, trElement) {
                 <div class="detail-item"><span class="label">Precio USD</span><span class="val">$${(row.Price || 0).toFixed(2)}</span></div>
                 <div class="detail-item"><span class="label">Precio MXN</span><span class="val" style="color:var(--success-color)">$${row.Price_MXN?.toFixed(2) || 'N/A'}</span></div>
                 <div class="detail-item"><span class="label">Score Heurístico</span><span class="val" style="color:var(--primary-color)">${row.Score || 0}/100</span></div>
-                <div class="detail-item"><span class="label">Score ML</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Source === 'ml_model' && hasNumericValue(row.ML_Score) ? `${Number(row.ML_Score).toFixed(1)}/100 <small style="font-size:10px;opacity:0.8;">(${escapeHtml(row.ML_Confidence || 'ML')})</small>` : 'N/D <small style="font-size:10px;opacity:0.8;">(solo heurística)</small>'}</span></div>
+                <div class="detail-item"><span class="label">Score ML</span><span class="val" style="color:var(--accent-color); font-weight:bold;">${row.ML_Source === 'validated_ml_model' && hasNumericValue(row.ML_Score) ? `${Number(row.ML_Score).toFixed(1)}/100 <small style="font-size:10px;opacity:0.8;">(${escapeHtml(row.ML_Confidence || 'ML')})</small>` : `N/D <small style="font-size:10px;opacity:0.8;">(solo heurística${row.ML_Degraded_Reason ? ': '+escapeHtml(row.ML_Degraded_Reason) : ''})</small>`}</span></div>
             </div>
         </div>
 
@@ -987,7 +1149,8 @@ function selectTicker(row, trElement) {
             <h3>Calidad y frescura</h3>
             <p><strong>${dataStatus.label}</strong></p>
             <p>${escapeHtml(dataStatus.detail)}</p>
-            ${row.Signal_Eligible === false || row.signal_eligible === false ? '<p class="signal-blocked">SIN SEÑAL: datos vencidos o calidad insuficiente.</p>' : ''}
+            ${row.Signal_Eligible === false || row.signal_eligible === false ? `<p class="signal-blocked">SIN SEÑAL: ${row.Quote?.is_stale ? 'datos vencidos' : (Number(row.Data_Quality ?? row.Quote?.quality_score ?? 0) < .90 ? `calidad insuficiente (${(Number(row.Data_Quality ?? row.Quote?.quality_score ?? 0) * 100).toFixed(0)}%, mínimo 90%)` : 'la estrategia no confirmó una oportunidad de entrada')}.</p>` : ''}
+            ${row.Secondary_Verification ? `<p><strong>Segunda fuente:</strong> ${row.Secondary_Verification.status === 'confirmed' ? 'Nasdaq confirma' : (row.Secondary_Verification.status === 'conflict' ? 'conflicto entre fuentes' : 'no disponible')} · ${row.Secondary_Verification.checked ? `diferencia ${Number(row.Secondary_Verification.difference_pct).toFixed(2)}%` : 'Yahoo continúa como fuente principal'}</p>` : ''}
         </div>
         
         <div class="detail-section">
@@ -1016,6 +1179,25 @@ function selectTicker(row, trElement) {
             <p><strong>Contribuciones:</strong> ${Object.entries(row.Score_Contributions || {}).map(([name, value]) => `${escapeHtml(name)} ${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)}`).join(' · ') || 'N/D'}</p>
             <p><strong>Datos faltantes:</strong> ${row.Heuristic_Version ? ((row.Missing_Indicators || []).map(escapeHtml).join(', ') || 'ninguno') : 'no evaluado (resultado heredado)'}</p>
             ${(row.Signal_Restrictions || []).length ? `<p class="signal-blocked"><strong>Restricciones:</strong> ${row.Signal_Restrictions.map(escapeHtml).join(' · ')}</p>` : ''}
+        </div>
+
+        ${row.Fusion_Explanation ? `
+        <div class="detail-section" style="border:1px solid var(--primary-color);border-radius:8px;padding:10px;">
+            <h3>Veredicto fusionado ${escapeHtml(row.Fusion_Version || '')}</h3>
+            <p><strong>A favor:</strong> ${(row.Fusion_Explanation.factors_for || []).map(escapeHtml).join(' · ')}</p>
+            <p><strong>En contra:</strong> ${(row.Fusion_Explanation.factors_against || []).map(escapeHtml).join(' · ')}</p>
+            <p><strong>Invalidación:</strong> ${(row.Fusion_Explanation.invalidation_triggers || []).map(escapeHtml).join(' · ')}</p>
+            ${row.Risk_Plan ? `<p><strong>Riesgo:</strong> ${row.Risk_Plan.position_size_shares} acciones · stop $${Number(row.Risk_Plan.stop_price).toFixed(2)} · pérdida máxima $${Number(row.Risk_Plan.maximum_loss).toFixed(2)} · horizonte ${escapeHtml(row.Risk_Plan.horizon)}</p>` : ''}
+        </div>` : ''}
+
+        <div class="detail-section signal-transparency" aria-label="Transparencia de la señal">
+            <h3>Qué sabe el sistema y qué no</h3>
+            <p><strong>Horizonte:</strong> ${escapeHtml(row.Risk_Plan?.horizon || 'swing 5-20 sesiones')} · <strong>Frescura:</strong> ${escapeHtml(row.Quote?.freshness_seconds ?? 'N/D')} s · <strong>Proveedor:</strong> ${escapeHtml(row.Quote?.provider || 'N/D')}</p>
+            <p><strong>Probabilidad ML calibrada:</strong> ${hasNumericValue(row.Calibrated_Probability) ? `${(Number(row.Calibrated_Probability) * 100).toFixed(1)}%` : 'N/D — modelo no aprobado o sin calibración'}</p>
+            <p><strong>Heurística:</strong> ${hasNumericValue(row.Score) ? Number(row.Score).toFixed(2) : 'N/D'} · <strong>Fourier:</strong> ${row.Spectral_Validated ? escapeHtml(row.Spectral_Score) : 'experimental, no usado en el veredicto'}</p>
+            <p><strong>Calidad de datos:</strong> ${hasNumericValue(row.Data_Quality) ? `${(Number(row.Data_Quality) * 100).toFixed(1)}%` : 'N/D'} · <strong>Incertidumbre:</strong> ${row.Data_Quality < .90 ? 'alta' : (hasNumericValue(row.Calibrated_Probability) ? 'cuantificada' : 'no cuantificada')}</p>
+            <p><strong>Versiones:</strong> reglas ${escapeHtml(row.Fusion_Version || 'N/D')} · modelo ${escapeHtml(row.Model_Version || 'N/D')}</p>
+            <p class="financial-disclaimer">No garantiza resultados ni constituye asesoría financiera.</p>
         </div>
         
         <div class="detail-section">

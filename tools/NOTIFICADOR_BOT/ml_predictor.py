@@ -13,9 +13,13 @@ import json
 import logging
 import sqlite3
 import math
+import hashlib
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
+
+from ml_validation import OODProfile, audit_legacy_artifact, phase5_approval
 
 import numpy as np
 try:
@@ -53,6 +57,8 @@ FEATURE_NAMES = [
     "price_level_log"
 ]
 
+MODEL_CONTRACT_VERSION = "5.0"
+
 
 class StockMLPredictor:
     """
@@ -65,9 +71,16 @@ class StockMLPredictor:
         self.db_path = Path(db_path) if db_path else base_dir / "learner.db"
         self.model_path = Path(model_path) if model_path else base_dir / "stock_ml_model.joblib"
         
-        self.model: Optional[Pipeline] = None
+        self.model: Optional[Any] = None
+        self.experimental_model: Optional[Any] = None
         self.metrics: Dict[str, Any] = {}
         self.last_trained: Optional[str] = None
+        self.model_version = "unavailable"
+        self.model_hash: Optional[str] = None
+        self.ood_profile: Optional[OODProfile] = None
+        self.production_approved = False
+        self.degraded_reason = "model_not_loaded"
+        self.audit: Dict[str, Any] = {}
         
         if SKLEARN_AVAILABLE and self.model_path.exists():
             self.load_model()
@@ -231,7 +244,12 @@ class StockMLPredictor:
             "trained_at": datetime.now().isoformat()
         }
 
-        self.model = clf
+        # El entrenamiento heredado no incluye calibración separada, benchmarks,
+        # purga/embargo completa ni OOD. Se conserva solo como experimento.
+        self.experimental_model = clf
+        self.model = None
+        self.production_approved = False
+        self.degraded_reason = "training_pipeline_not_phase5_validated"
         self.metrics = metrics
         self.last_trained = metrics["trained_at"]
 
@@ -242,29 +260,58 @@ class StockMLPredictor:
     def save_model(self) -> None:
         """Guarda el modelo, escalador y métricas en disco."""
         payload = {
-            "model": self.model,
+            "model": self.model or self.experimental_model,
             "metrics": self.metrics,
             "last_trained": self.last_trained,
-            "feature_names": FEATURE_NAMES
+            "feature_names": FEATURE_NAMES,
+            "model_version": self.model_version,
+            "phase5_validation": {"approved": False, "reason": self.degraded_reason},
         }
         joblib.dump(payload, self.model_path)
         log.info(f"Modelo ML guardado en {self.model_path}")
 
     def load_model(self) -> bool:
-        """Carga el modelo guardado previamente."""
+        """Carga artefactos, pero solo activa los que acreditan la fase 5."""
         if not SKLEARN_AVAILABLE or not self.model_path.exists():
             return False
 
         try:
             payload = joblib.load(self.model_path)
-            self.model = payload.get("model")
+            candidate = payload.get("model")
             self.metrics = payload.get("metrics", {})
             self.last_trained = payload.get("last_trained")
-            log.info(f"Modelo ML cargado desde {self.model_path} (Entrenado: {self.last_trained})")
+            self.model_hash = hashlib.sha256(self.model_path.read_bytes()).hexdigest()
+            self.model_version = str(payload.get("model_version") or "legacy-1.0")
+            validation = payload.get("phase5_validation") or {}
+            reconstructed = self._reconstructed_sample_count()
+            self.audit = audit_legacy_artifact(self.metrics, reconstructed)
+            if validation:
+                approval = phase5_approval(validation)
+                provenance_ok = int(validation.get("samples_total") or 0) == reconstructed
+                self.production_approved = bool(approval["approved"] and provenance_ok)
+                profile = payload.get("ood_profile") or {}
+                if profile.get("lower") is not None and profile.get("upper") is not None:
+                    self.ood_profile = OODProfile(np.asarray(profile["lower"]), np.asarray(profile["upper"]))
+            if self.production_approved:
+                self.model = candidate
+                self.degraded_reason = ""
+                log.info("Modelo ML fase 5 aprobado y cargado: %s", self.model_version)
+            else:
+                self.experimental_model = candidate
+                self.model = None
+                self.degraded_reason = "legacy_model_not_reproducible_or_unvalidated"
+                log.warning("Modelo ML retenido solo como experimento: %s", self.audit.get("reasons"))
             return True
         except Exception as e:
             log.error(f"Error cargando modelo ML: {e}")
             return False
+
+    def _reconstructed_sample_count(self) -> int:
+        try:
+            X, _y, _dates = self.fetch_training_dataset()
+            return int(len(X))
+        except Exception:
+            return 0
 
     def predict_score(self, ticker_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -274,9 +321,17 @@ class StockMLPredictor:
         result = {
             "ml_score": None,
             "probability": None,
+            "model_prediction": None,
+            "calibrated_probability": None,
+            "model_version": self.model_version,
             "confidence_level": "NO DISPONIBLE",
             "feature_breakdown": {},
-            "source": "fallback"
+            "top_features": {},
+            "buy_score": None,
+            "exit_score": None,
+            "ood_detected": False,
+            "degraded_reason": self.degraded_reason,
+            "source": "heuristic_fallback"
         }
         
         if not SKLEARN_AVAILABLE or self.model is None:
@@ -285,6 +340,25 @@ class StockMLPredictor:
         try:
             feat_vec = self._extract_feature_vector(ticker_data)
             X_in = np.array([feat_vec], dtype=np.float64)
+            expected_features = getattr(self.model, "n_features_in_", len(FEATURE_NAMES))
+            if int(expected_features) != len(FEATURE_NAMES):
+                result["degraded_reason"] = "model_feature_contract_mismatch"
+                log.warning(
+                    "Modelo ML incompatible: esperaba %s variables y el contrato actual entrega %s.",
+                    expected_features,
+                    len(FEATURE_NAMES),
+                )
+                return result
+            if self.ood_profile is None:
+                result["ood_detected"] = True
+                result["degraded_reason"] = "ood_profile_missing"
+                return result
+            is_ood, indices = self.ood_profile.detect(X_in[0])
+            if is_ood:
+                result["ood_detected"] = True
+                result["ood_features"] = [FEATURE_NAMES[index] for index in indices]
+                result["degraded_reason"] = "out_of_distribution"
+                return result
             proba_win = float(self.model.predict_proba(X_in)[0, 1])
 
             # Convertir probabilidad a ML Score (0 a 100)
@@ -299,16 +373,21 @@ class StockMLPredictor:
             else:
                 conf = "BAJA"
 
-            # Top features for this specific prediction
-            # Since global importances represent the model, we serve the global ones as breakdown
-            gbm = self.model.named_steps['gbm']
-            f_imp = gbm.feature_importances_
-            
-            # Find the top 3 features for this instance based on value * importance
-            scaled_feat = self.model.named_steps['scaler'].transform(X_in)[0]
-            contributions = scaled_feat * f_imp
-            
-            top_indices = np.argsort(np.abs(contributions))[-3:][::-1]
+            # Los artefactos históricos pueden ser un estimador directo; los
+            # actuales normalmente son Pipeline. La explicación es compatible
+            # con ambos formatos y nunca invalida una predicción correcta.
+            named_steps = getattr(self.model, "named_steps", {})
+            estimator = named_steps.get("gbm") if named_steps else self.model
+            scaler = named_steps.get("scaler") if named_steps else None
+            f_imp = getattr(estimator, "feature_importances_", None)
+            explained_features = scaler.transform(X_in)[0] if scaler is not None else X_in[0]
+            contributions = (
+                explained_features * np.asarray(f_imp)
+                if f_imp is not None and len(f_imp) == len(FEATURE_NAMES)
+                else np.zeros(len(FEATURE_NAMES), dtype=np.float64)
+            )
+
+            top_indices = np.argsort(np.abs(contributions))[-3:][::-1] if np.any(contributions) else []
             breakdown = {}
             for idx in top_indices:
                 feature = FEATURE_NAMES[idx]
@@ -318,9 +397,17 @@ class StockMLPredictor:
             return {
                 "ml_score": ml_score,
                 "probability": proba_win,
+                "model_prediction": "BUY" if proba_win >= 0.5 else "NO_BUY",
+                "calibrated_probability": proba_win,
+                "model_version": self.model_version,
                 "confidence_level": conf,
                 "feature_breakdown": breakdown,
-                "source": "ml_model"
+                "top_features": breakdown,
+                "buy_score": ml_score,
+                "exit_score": None,
+                "ood_detected": False,
+                "degraded_reason": "",
+                "source": "validated_ml_model"
             }
         except Exception as e:
             log.error(f"Error prediciendo con modelo ML: {e}")
@@ -331,8 +418,14 @@ class StockMLPredictor:
         return {
             "available": SKLEARN_AVAILABLE,
             "trained": self.model is not None,
+            "production_approved": self.production_approved,
+            "decision": "production" if self.production_approved else "experiment_only",
+            "degraded_reason": self.degraded_reason,
+            "model_version": self.model_version,
+            "model_hash": self.model_hash,
             "last_trained": self.last_trained,
             "metrics": self.metrics,
+            "phase5_audit": self.audit,
             "database_configured": self.db_path.exists(),
             "model_artifact": self.model_path.name
         }
@@ -340,10 +433,13 @@ class StockMLPredictor:
 
 # Instancia singleton para fácil reutilización
 _predictor_instance: Optional[StockMLPredictor] = None
+_predictor_lock = threading.Lock()
 
 
 def get_ml_predictor() -> StockMLPredictor:
     global _predictor_instance
     if _predictor_instance is None:
-        _predictor_instance = StockMLPredictor()
+        with _predictor_lock:
+            if _predictor_instance is None:
+                _predictor_instance = StockMLPredictor()
     return _predictor_instance

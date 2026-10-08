@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from src.notifications import NotificationService
 
 import re
+import time
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -32,12 +33,23 @@ class ExpenseBot:
             write_timeout=30,
             pool_timeout=10,
         )
+        # python-telegram-bot usa un cliente HTTP separado para el long
+        # polling. Configurarlo explícitamente evita que getUpdates conserve
+        # timeouts/reintentos distintos a los del resto del bot.
+        polling_request_config = HTTPXRequest(
+            connect_timeout=30,
+            read_timeout=45,
+            write_timeout=30,
+            pool_timeout=10,
+        )
         self.application = (
             ApplicationBuilder()
             .token(token)
             .request(request_config)
+            .get_updates_request(polling_request_config)
             .build()
         )
+        self._last_network_warning = 0.0
         self.analyzer = AnalysisService(api_key)
         self.dashboard_url = dashboard_url if dashboard_url else Config.DASHBOARD_URL
         self.api_url = "http://127.0.0.1:5050/api/add-expense" # Internal API URL
@@ -135,12 +147,30 @@ class ExpenseBot:
     
     async def _start_polling(self):
         """Inicia el polling de forma asíncrona."""
-        await self.application.initialize()
+        from telegram.error import NetworkError, TimedOut
+
+        self._running = True
+        retry_delay = 1.0
+        while self._running:
+            try:
+                await self.application.initialize()
+                break
+            except (NetworkError, TimedOut) as exc:
+                self._polling_network_error(exc)
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(30.0, retry_delay * 1.5)
+        if not self._running:
+            return
         await self.application.start()
-        await self.application.updater.start_polling(drop_pending_updates=True)
+        await self.application.updater.start_polling(
+            drop_pending_updates=True,
+            # -1 mantiene el servicio vivo ante DNS/Wi-Fi temporalmente caído.
+            # La librería aplica backoff de hasta 30 segundos.
+            bootstrap_retries=-1,
+            error_callback=self._polling_network_error,
+        )
         
         # Mantener corriendo hasta que se llame stop
-        self._running = True
         while self._running:
             await asyncio.sleep(0.5)
         
@@ -148,6 +178,17 @@ class ExpenseBot:
         await self.application.updater.stop()
         await self.application.stop()
         await self.application.shutdown()
+
+    def _polling_network_error(self, error):
+        """Resume fallos transitorios sin inundar la interfaz con tracebacks."""
+        now = time.monotonic()
+        if now - self._last_network_warning >= 60:
+            logger.warning(
+                "[TELEGRAM] Conexión temporalmente no disponible (%s). "
+                "El bot reintentará automáticamente.",
+                type(error).__name__,
+            )
+            self._last_network_warning = now
 
     def stop(self):
         """Detiene el bot de forma segura desde otro hilo."""
@@ -907,4 +948,3 @@ class ExpenseBot:
                 logger.info(f"Sent reminders for {len(debts)} pending debts/loans")
         except Exception as e:
             logger.error(f"Error sending debt reminders: {e}", exc_info=True)
-
