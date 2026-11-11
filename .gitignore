@@ -66,3 +66,4 @@ cloudflare/.generated_legacy_import/
 database/*.tmp
 database/bolsa_worker_status.json
 database/user_feedback_reports.jsonl
+logs/

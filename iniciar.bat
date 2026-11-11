@@ -4,10 +4,12 @@ title Asistente Financiero
 cd /d "%~dp0"
 if errorlevel 1 exit /b 1
 
+if /I "%~1"=="--diagnose" goto :launch_options
 echo ===================================================
 echo   ASISTENTE FINANCIERO
 echo ===================================================
 
+:launch_options
 set "APP_PYTHON=%~dp0.venv\Scripts\python.exe"
 set "APP_CHECK_ONLY=0"
 if /I "%~1"=="--check" set "APP_CHECK_ONLY=1"
@@ -34,6 +36,10 @@ if errorlevel 1 goto :missing_dependencies
 goto :ready
 
 :ready
+if /I "%~1"=="--diagnose" (
+    "%APP_PYTHON%" "%~dp0diagnostico.py" todo --json
+    exit /b
+)
 if "%APP_CHECK_ONLY%"=="1" (
     echo [OK] Python y dependencias disponibles. Arranque local listo.
     exit /b 0
@@ -85,4 +91,3 @@ git pull --ff-only origin main
 if errorlevel 1 echo [AVISO] No se pudo actualizar. Se abrira la version local.
 if not exist ".env" if exist "backups\.env.before-update" copy /y "backups\.env.before-update" ".env" >nul
 exit /b 0
-

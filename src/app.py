@@ -215,6 +215,11 @@ class BotGUI(ctk.CTk):
         handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
+        from src.diagnostics import install_file_logging
+        try:
+            install_file_logging()
+        except OSError:
+            logging.warning('No se pudo abrir el registro de diagnóstico; revisa los permisos de logs/.')
         # Evitar una línea por cada consulta de Telegram en la ventana.
         logging.getLogger("httpx").setLevel(logging.WARNING)
 

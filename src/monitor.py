@@ -13,6 +13,8 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+from src.database import DatabaseUnavailable
+
 load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 try:
@@ -47,6 +49,8 @@ def hilo_baz():
                 log_baz.info("Revisión #%s: %s gasto(s) nuevos importados.", run, imported)
             else:
                 log_baz.debug("Revisión #%s: sin correos nuevos.", run)
+        except DatabaseUnavailable as exc:
+            log_baz.warning('[CORREO BAZ] No se importaron gastos: %s Se reintentará en %s min.', exc, EMAIL_INTERVALO // 60)
         except (NetworkConnectionError, Timeout):
             log_baz.warning(
                 "[CORREO BAZ] Conexión temporalmente no disponible. "

@@ -10,6 +10,10 @@ import time as _time
 import json
 import calendar
 import tempfile
+import requests
+import sqlite3
+import re
+from html import escape
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
@@ -757,6 +761,49 @@ def _html_response(html: str, cache_seconds: int = 0):
 
 
 # ─── Rutas principales ───────────────────────────────────────────────────────
+def _offline_expense_view(page, error):
+    """Conserva la consulta de gastos, con origen visible y edición bloqueada."""
+    from src.local_expenses import read_local_expenses
+    year = request.args.get('year', type=int)
+    if year is not None and not 1 <= year <= 9999:
+        year = None
+    try:
+        snapshot = read_local_expenses(
+            Path(root_dir) / 'database' / 'expenses.db',
+            year=year if page != 'details' else None,
+            limit=150 if page == 'transactions' and year is None else None,
+        )
+        if not snapshot['count']:
+            raise ValueError('La copia local no contiene gastos.')
+        expenses = snapshot['expenses']
+        if page == 'dashboard':
+            data = DashboardGenerator.generate_html(expenses, snapshot['categories'],
+                selected_year=year, available_years=snapshot['years'])
+        elif page == 'transactions':
+            data = TransactionsViewGenerator.generate_html(expenses, selected_year=year,
+                available_years=snapshot['years'])
+            data['transactions_hint'] = 'Copia local de solo lectura. Selecciona un año para ver su historial.'
+        else:
+            data = DetailsViewGenerator.generate_html(expenses)
+        data['current_time'] = datetime.now().strftime('%d %b %H:%M')
+        html = render_template(page + '.html', **data)
+        banner = ('<div id="local-data-notice" role="status" style="position:fixed;top:0;left:0;right:0;'
+                  'z-index:2147483647;background:#713f12;color:white;padding:12px;font:14px Arial;text-align:center">'
+                  f'COPIA LOCAL · SOLO LECTURA · {snapshot["count"]} gastos · Último registro: {escape(str(snapshot["last_date"]))}. '
+                  'Cloudflare no está conectado; estos datos pueden estar desactualizados.</div>'
+                  '<style>body{padding-top:52px!important}</style>'
+                  '<script>document.addEventListener("DOMContentLoaded",function(){'
+                  'document.querySelectorAll("input,select,textarea,button").forEach(function(e){'
+                  'if(e.id!=="theme-btn"){e.disabled=true;e.title="Copia local de solo lectura";}});});</script>')
+        html = re.sub(r'(<body\b[^>]*>)', lambda match: match[1] + banner, html, count=1, flags=re.I)
+        response = _html_response(html)
+        response.headers['Content-Security-Policy'] = "connect-src 'none'; form-action 'none'"
+        response.headers['X-Data-Source'] = 'local-readonly'
+        return response
+    except (OSError, sqlite3.Error, ValueError):
+        return _html_response(_empty_page('No se pudieron cargar los gastos', escape(str(error)))), 503
+
+
 @app.route('/')
 def index():
     resp = make_response('', 302)
@@ -798,7 +845,7 @@ def dashboard():
 
     except DatabaseUnavailable as e:
         logger.error('Dashboard sin acceso a datos: %s', e)
-        return _html_response(_empty_page('No se pudieron cargar los gastos', str(e))), 503
+        return _offline_expense_view('dashboard', e)
     except Exception as e:
         logger.error(f"Error generando dashboard: {e}", exc_info=True)
         return _html_response(_error_page(sanitize_public_error(e))), 500
@@ -837,6 +884,9 @@ def transactions_view():
         _set_cached_view(cache_key, html)
         return _html_response(html)
 
+    except DatabaseUnavailable as e:
+        logger.error('Transacciones sin acceso a datos: %s', e)
+        return _offline_expense_view('transactions', e)
     except Exception as e:
         logger.error(f"Error generando transacciones: {e}", exc_info=True)
         return _html_response(_error_page(sanitize_public_error(e))), 500
@@ -855,6 +905,9 @@ def details_view():
         _set_cached_view('details', html)
         return _html_response(html)
 
+    except DatabaseUnavailable as e:
+        logger.error('Analíticos sin acceso a datos: %s', e)
+        return _offline_expense_view('details', e)
     except Exception as e:
         logger.error(f"Error generando detalles: {e}", exc_info=True)
         return _html_response(_error_page(sanitize_public_error(e))), 500

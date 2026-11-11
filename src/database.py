@@ -395,6 +395,8 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
             "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json"
         }
+        self._unavailable_until = 0.0
+        self._unavailable_reason = ''
         
         self._cache_data: List[Dict] = []
         self._cache_key = None
@@ -411,6 +413,8 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
         """Ejecuta una consulta SQL en Cloudflare D1 y devuelve los resultados."""
         if not httpx:
             raise DatabaseUnavailable('Falta httpx. Ejecuta iniciar.bat --setup.')
+        if time.monotonic() < self._unavailable_until:
+            raise DatabaseUnavailable(self._unavailable_reason)
         
         payload = {"sql": sql}
         if params:
@@ -419,6 +423,9 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
         try:
             resp = httpx.post(self.url, headers=self.headers, json=payload, timeout=10.0)
             if resp.status_code != 200:
+                if resp.status_code in (401, 403):
+                    self._unavailable_until = time.monotonic() + 60
+                    self._unavailable_reason = f'Cloudflare D1 respondió HTTP {resp.status_code}. Revisa sus credenciales y permisos en .env.'
                 raise DatabaseUnavailable(f'Cloudflare D1 respondió HTTP {resp.status_code}. Revisa sus credenciales y permisos en .env.')
             
             data = resp.json()
@@ -432,7 +439,9 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
             raise
         except Exception:
             # No exponer URLs, cabeceras ni respuestas que puedan contener credenciales.
-            raise DatabaseUnavailable('No se pudo leer Cloudflare D1. Revisa la conexión y la configuración de la base de datos.') from None
+            self._unavailable_until = time.monotonic() + 15
+            self._unavailable_reason = 'No se pudo leer Cloudflare D1. Revisa la conexión y la configuración de la base de datos.'
+            raise DatabaseUnavailable(self._unavailable_reason) from None
 
     def _execute(self, sql: str, params: list = None) -> bool:
         """Ejecuta una inserción/actualización/borrado en Cloudflare D1."""
