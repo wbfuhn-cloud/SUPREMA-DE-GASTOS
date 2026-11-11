@@ -18,7 +18,7 @@ root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from src.database import DatabaseManager
+from src.database import DatabaseManager, DatabaseUnavailable
 from src.dashboard import DashboardGenerator
 from src.transactions_view import TransactionsViewGenerator
 from src.details_view import DetailsViewGenerator
@@ -796,6 +796,9 @@ def dashboard():
         _set_cached_view(cache_key, html)
         return _html_response(html)
 
+    except DatabaseUnavailable as e:
+        logger.error('Dashboard sin acceso a datos: %s', e)
+        return _html_response(_empty_page('No se pudieron cargar los gastos', str(e))), 503
     except Exception as e:
         logger.error(f"Error generando dashboard: {e}", exc_info=True)
         return _html_response(_error_page(sanitize_public_error(e))), 500

@@ -1,8 +1,8 @@
 import os
-from dotenv import load_dotenv
+from src.settings import load_settings
 
 # Cargar variables del archivo .env
-load_dotenv(override=True)
+load_settings()
 
 class Config:
     """

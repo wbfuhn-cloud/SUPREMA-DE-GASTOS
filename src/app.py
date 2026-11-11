@@ -27,18 +27,18 @@ def prevent_sleep():
         def _task():
             try:
                 ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
-                logging.info("Prevenci�n de reposo activada (Windows).")
+                logging.info("Prevención de reposo activada (Windows).")
             except Exception as e:
-                logging.warning(f"Error al activar prevenci�n de reposo: {e}")
+                logging.warning(f"Error al activar prevención de reposo: {e}")
         threading.Thread(target=_task, daemon=True).start()
 
 def allow_sleep():
     if os.name == 'nt':
         try:
             ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
-            logging.info("Prevenci�n de reposo desactivada.")
+            logging.info("Prevención de reposo desactivada.")
         except Exception as e:
-            logging.warning(f"Error al desactivar prevenci�n de reposo: {e}")
+            logging.warning(f"Error al desactivar prevención de reposo: {e}")
 
 def get_local_ip() -> str:
     try:
@@ -64,11 +64,11 @@ class TextHandler(logging.Handler):
         self.log_queue = log_queue
 
     def emit(self, record):
-        # No modificar el registro que tambi�n reciben otros handlers.
+        # No modificar el registro que también reciben otros handlers.
         import copy
         import re
         record = copy.copy(record)
-        # La librer�a de Telegram adjunta un traceback completo a fallos DNS
+        # La librería de Telegram adjunta un traceback completo a fallos DNS
         # transitorios aunque su propio bucle vaya a reintentar. En la GUI
         # basta un aviso corto; errores no transitorios conservan su traceback.
         if (record.name == "telegram.ext._utils.networkloop"
@@ -78,7 +78,7 @@ class TextHandler(logging.Handler):
             record.exc_text = None
             record.levelno = logging.WARNING
             record.levelname = "WARNING"
-            record.msg = "[TELEGRAM] Red temporalmente no disponible; reintentando autom�ticamente."
+            record.msg = "[TELEGRAM] Red temporalmente no disponible; reintentando automáticamente."
             record.args = ()
         msg = self.format(record)
         # HTTPX incluye la credencial del bot dentro de la URL de Telegram.
@@ -93,7 +93,7 @@ class ConfigurationWindow(ctk.CTkToplevel):
 
         self.units, self.default_unit, self.setup_completed = Config.get_units_config()
 
-        title = "Modificar Datos de Configuraci�n" if self.setup_completed else "Configuraci�n Inicial - Departamentos"
+        title = "Modificar Datos de Configuración" if self.setup_completed else "Configuración Inicial - Departamentos"
         self.title(title)
         self.geometry("500x600")
         self._init_ui()
@@ -103,7 +103,7 @@ class ConfigurationWindow(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        header_text = "Modificar Unidades / Departamentos" if self.setup_completed else "Gesti�n de Unidades / Departamentos"
+        header_text = "Modificar Unidades / Departamentos" if self.setup_completed else "Gestión de Unidades / Departamentos"
         ctk.CTkLabel(self, text=header_text, font=ctk.CTkFont(size=16, weight="bold")).grid(
             row=0, column=0, padx=20, pady=20
         )
@@ -122,7 +122,7 @@ class ConfigurationWindow(ctk.CTkToplevel):
             side="right", padx=10, pady=10
         )
 
-        btn_text = "Actualizar Configuraci�n" if self.setup_completed else "Guardar Cambios y Finalizar"
+        btn_text = "Actualizar Configuración" if self.setup_completed else "Guardar Cambios y Finalizar"
         ctk.CTkButton(self, text=btn_text, fg_color="green", command=self.save_config).grid(
             row=3, column=0, padx=20, pady=20
         )
@@ -202,7 +202,7 @@ class BotGUI(ctk.CTk):
         if setup_completed:
             self.start_bot()
         else:
-            logging.info("Primera ejecuci�n detectada. Por favor configura las unidades.")
+            logging.info("Primera ejecución detectada. Por favor configura las unidades.")
             self._open_config_window()
 
     def _open_config_window(self):
@@ -213,7 +213,7 @@ class BotGUI(ctk.CTk):
         handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
-        # Evitar una l�nea por cada consulta de Telegram en la ventana.
+        # Evitar una línea por cada consulta de Telegram en la ventana.
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
     def _init_ui(self):
@@ -242,7 +242,14 @@ class BotGUI(ctk.CTk):
 
     def start_bot(self):
         if self.bot_thread and self.bot_thread.is_alive():
-            logging.warning("El bot ya est� en ejecuci�n.")
+            logging.warning("El bot ya está en ejecución.")
+            return
+
+        try:
+            Config.validate()
+        except ValueError as exc:
+            logging.error('%s. Copia tu .env de la instalación anterior a esta carpeta.', exc)
+            self.status_label.configure(text='Estado: FALTA CONFIGURACIÓN', text_color='red')
             return
 
         self.stop_event.clear()
@@ -265,7 +272,7 @@ class BotGUI(ctk.CTk):
 
                 base_port = int(os.environ.get("APP_PORT", 5050))
                 port = find_free_port(base_port)
-                os.environ["APP_PORT"] = str(port)  # Guardar para el t�nel y reinicios
+                os.environ["APP_PORT"] = str(port)  # Guardar para el túnel y reinicios
                 
                 logging.info(f"Iniciando Servidor Web (Puerto {port}) de inmediato...")
                 local_ip = get_local_ip()
@@ -276,7 +283,7 @@ class BotGUI(ctk.CTk):
                 self.bot_instance = ExpenseBot(
                     self.token,
                     self.google_key,
-                    dashboard_url=dashboard_url, # Se actualizar� luego si hay t�nel
+                    dashboard_url=dashboard_url, # Se actualizará luego si hay túnel
                     on_pause_callback=self.pause_services,
                     on_resume_callback=self.resume_services,
                 )
@@ -298,9 +305,9 @@ class BotGUI(ctk.CTk):
                 logging.info("Worker de Bolsa iniciado como proceso independiente (PID %s).",
                              self.bolsa_worker_process.pid)
 
-                # Mostrar "EN L�NEA" casi de inmediato ya que el servidor levanta r�pido
+                # Mostrar "EN LÍNEA" casi de inmediato ya que el servidor levanta rápido
                 self.after(0, lambda: self.status_label.configure(
-                    text="Estado: EN L�NEA", text_color="green"
+                    text="Estado: EN LÍNEA", text_color="green"
                 ))
 
                 # Abrir dashboard local
@@ -314,12 +321,12 @@ class BotGUI(ctk.CTk):
                 t_baz = threading.Thread(target=hilo_baz, daemon=True)
                 t_baz.start()
 
-                # Lanzar el t�nel en un hilo paralelo para NO BLOQUEAR
+                # Lanzar el túnel en un hilo paralelo para NO BLOQUEAR
                 def _start_tunnel_async():
-                    logging.info("Iniciando T�nel Cloudflare en segundo plano...")
+                    logging.info("Iniciando Túnel Cloudflare en segundo plano...")
                     public_url = TunnelManager.start_tunnel(port=port)
                     if public_url:
-                        logging.info(f"URL P�BLICA (T�NEL): {public_url}/dashboard")
+                        logging.info(f"URL PÚBLICA (TÚNEL): {public_url}/dashboard")
                         self.bot_instance.dashboard_url = f"{public_url}/dashboard"
                 
                 threading.Thread(target=_start_tunnel_async, daemon=True).start()
@@ -328,7 +335,7 @@ class BotGUI(ctk.CTk):
                 self.bot_instance.run()
 
             except Exception as e:
-                logging.error(f"Error fatal en bot/t�nel: {e}", exc_info=True)
+                logging.error(f"Error fatal en bot/túnel: {e}", exc_info=True)
                 from tkinter import messagebox
                 detail = f"El bot se detuvo por un error:\n{e}"
                 self.after(0, messagebox.showerror, "Error del Bot", detail)
@@ -359,11 +366,11 @@ class BotGUI(ctk.CTk):
                     try:
                         import requests
                         requests.get(f"{url}/dashboard", timeout=10).raise_for_status()
-                        logging.info(f"[{now}] Sistema activo - t�nel {url} refrescado.")
+                        logging.info(f"[{now}] Sistema activo — túnel {url} refrescado.")
                     except Exception:
-                        logging.warning(f"[{now}] Sistema activo - no se pudo contactar el t�nel.")
+                        logging.warning(f"[{now}] Sistema activo — no se pudo contactar el túnel.")
                 else:
-                    logging.warning("T�nel inactivo. Reinicia si el link no responde.")
+                    logging.warning("Túnel inactivo. Reinicia si el link no responde.")
 
         threading.Thread(target=_loop, daemon=True).start()
 
@@ -406,7 +413,7 @@ class BotGUI(ctk.CTk):
         logging.info("Pausando servicios externos...")
         TunnelManager.stop_tunnel()
         self.after(0, lambda: self.status_label.configure(text="Estado: EN PAUSA", text_color="orange"))
-        logging.info("T�nel detenido. Servidor web permanece activo.")
+        logging.info("Túnel detenido. Servidor web permanece activo.")
 
     def resume_services(self):
         logging.info("Reanudando servicios externos...")
@@ -417,13 +424,13 @@ class BotGUI(ctk.CTk):
             if public_url and self.bot_instance:
                 self.bot_instance._dashboard_url_static = f"{public_url}/dashboard"
                 logging.info(f"URL del Bot actualizada: {public_url}/dashboard")
-            self.after(0, lambda: self.status_label.configure(text="Estado: EN L�NEA", text_color="green"))
+            self.after(0, lambda: self.status_label.configure(text="Estado: EN LÍNEA", text_color="green"))
             logging.info("Servicios reanudados.")
 
         threading.Thread(target=_restart, daemon=True).start()
 
     def on_closing(self):
-        logging.info("Cerrando aplicaci�n...")
+        logging.info("Cerrando aplicación...")
         try:
             if self.bot_instance:
                 threading.Thread(target=self.bot_instance.stop, daemon=True).start()
@@ -452,4 +459,3 @@ class BotGUI(ctk.CTk):
 if __name__ == "__main__":
     app = BotGUI()
     app.mainloop()
-

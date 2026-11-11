@@ -12,12 +12,18 @@ set "FORCE_SETUP=0"
 if /I "%~1"=="--setup" set "FORCE_SETUP=1"
 
 if exist ".git" (
+    if exist ".env" (
+        if not exist "backups" mkdir "backups"
+        copy /y ".env" "backups\.env.before-update" >nul
+        if errorlevel 1 goto :config_backup_error
+    )
     echo [*] Comprobando actualizaciones en GitHub antes de iniciar...
     set "GIT_TERMINAL_PROMPT=0"
     git pull --ff-only origin main
     if errorlevel 1 echo [!] No se pudo actualizar; se iniciara la copia local sin sobrescribir cambios.
+    if not exist ".env" if exist "backups\.env.before-update" copy /y "backups\.env.before-update" ".env" >nul
 ) else (
-    echo [!] Esta carpeta no contiene un repositorio Git; se iniciara la copia local.
+    echo [*] Copia sin historial Git: se usara la version descargada. Para actualizaciones automaticas, clona el repositorio.
 )
 
 if not exist "%PYTHON%" (
@@ -60,3 +66,7 @@ echo [ERROR] No se pudieron instalar las dependencias.
 pause
 exit /b 1
 
+:config_backup_error
+echo [ERROR] No se pudo respaldar .env. Se detuvo la actualizacion para proteger tu configuracion.
+pause
+exit /b 1

@@ -6,6 +6,11 @@ from typing import List, Dict, Optional, Tuple
 import threading
 import logging
 import sqlite3
+from src.settings import load_settings
+
+
+class DatabaseUnavailable(RuntimeError):
+    """Un fallo de configuración o conexión no equivale a una base vacía."""
 
 try:
     import httpx
@@ -405,7 +410,7 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
     def _query(self, sql: str, params: list = None) -> List[Dict]:
         """Ejecuta una consulta SQL en Cloudflare D1 y devuelve los resultados."""
         if not httpx:
-            return []
+            raise DatabaseUnavailable('Falta httpx. Ejecuta iniciar.bat --setup.')
         
         payload = {"sql": sql}
         if params:
@@ -414,16 +419,20 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
         try:
             resp = httpx.post(self.url, headers=self.headers, json=payload, timeout=10.0)
             if resp.status_code != 200:
-                self._logger.error(f"Error D1 HTTP {resp.status_code}: {resp.text}")
-                return []
+                raise DatabaseUnavailable(f'Cloudflare D1 respondió HTTP {resp.status_code}. Revisa sus credenciales y permisos en .env.')
             
             data = resp.json()
-            if data.get("success") and "result" in data:
-                return data["result"][0].get("results", [])
-            return []
-        except Exception as e:
-            self._logger.error(f"Excepción D1: {e}")
-            return []
+            results = data.get('result')
+            if (not data.get('success') or not isinstance(results, list) or not results
+                    or not isinstance(results[0], dict) or results[0].get('success') is False
+                    or not isinstance(results[0].get('results'), list)):
+                raise DatabaseUnavailable('Cloudflare D1 no pudo completar la consulta. Revisa la configuración y el esquema de gastos.')
+            return results[0]['results']
+        except DatabaseUnavailable:
+            raise
+        except Exception:
+            # No exponer URLs, cabeceras ni respuestas que puedan contener credenciales.
+            raise DatabaseUnavailable('No se pudo leer Cloudflare D1. Revisa la conexión y la configuración de la base de datos.') from None
 
     def _execute(self, sql: str, params: list = None) -> bool:
         """Ejecuta una inserción/actualización/borrado en Cloudflare D1."""
@@ -620,12 +629,14 @@ class CloudflareDatabaseManager(BaseDatabaseManager):
 # ---
 def get_database_manager(db_path: Optional[str] = None) -> BaseDatabaseManager:
     import os
-    from dotenv import load_dotenv
-    load_dotenv('.env')
+    load_settings()
 
     account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
     db_id = os.getenv("CLOUDFLARE_D1_DATABASE_ID")
     api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+
+    if any((account_id, db_id, api_token)) and not all((account_id, db_id, api_token)):
+        raise DatabaseUnavailable('Configuración D1 incompleta: revisa CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_DATABASE_ID y CLOUDFLARE_API_TOKEN en .env.')
 
     if account_id and db_id and api_token:
         print("[DB] Configuración de Cloudflare D1 detectada. Usando base de datos en la NUBE.")
