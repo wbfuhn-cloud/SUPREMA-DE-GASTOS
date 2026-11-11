@@ -112,6 +112,9 @@ class NyseCalendar:
         }
         if year >= 2022:
             holidays.add(_observed(date(year, 6, 19)))
+        if year == 2025:
+            # NYSE: cierre extraordinario nacional (Jimmy Carter).
+            holidays.add(date(2025, 1, 9))
         next_new_year_observed = _observed(date(year + 1, 1, 1))
         if next_new_year_observed.year == year:
             holidays.add(next_new_year_observed)

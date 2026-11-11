@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 
 PAPER_PROTOCOL_VERSION = "1.0.0"
@@ -114,7 +115,7 @@ class PaperTradingLedger:
         if missing:
             raise ValueError(f"Campos obligatorios ausentes: {', '.join(missing)}")
         emitted = str(signal.get("emitted_at_utc") or _utc_now())
-        session = str(signal.get("market_session") or emitted[:10])
+        session = datetime.fromisoformat(emitted.replace('Z', '+00:00')).astimezone(ZoneInfo('America/New_York')).date().isoformat()
         payload = json.dumps(signal, sort_keys=True, separators=(",", ":"), default=str)
         try:
             with self._connect() as db:
@@ -179,23 +180,42 @@ class PaperTradingLedger:
                 "SELECT COUNT(*) FROM paper_incidents WHERE severity='critical' AND closed_at_utc IS NULL"
             ).fetchone()[0]
             drills = db.execute("SELECT success FROM kill_switch_drills").fetchall()
-        sessions = len({row["market_session"] for row in rows})
+        from prediction_ledger import NyseCalendar
+        calendar = NyseCalendar()
+        # Registros antiguos guardaban 'regular'. Recuperar su fecha desde la
+        # emisión sin alterar el historial inmutable ni inventar observaciones.
+        session_dates = {datetime.fromisoformat(row['emitted_at_utc'].replace('Z', '+00:00'))
+                         .astimezone(ZoneInfo('America/New_York')).date() for row in rows}
+        sessions = sum(calendar.is_session(day) for day in session_dates)
         stale = 0
+        eligible = []
         duplicate_count = 0  # la PK hace imposible persistir duplicados
         for row in rows:
+            payload = json.loads(row['payload_json'])
+            quote = payload.get('quote')
+            is_stale = True
             timestamp = row["data_timestamp_utc"]
-            if timestamp:
+            if quote:
+                from market_data import ensure_quote_contract
+                emitted = datetime.fromisoformat(row['emitted_at_utc'].replace('Z', '+00:00'))
+                is_stale = ensure_quote_contract({'Quote': quote}, received_at=emitted)['is_stale']
+            elif timestamp:
                 observed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                if (datetime.fromisoformat(row["emitted_at_utc"].replace("Z", "+00:00")) - observed).total_seconds() > 900:
-                    stale += 1
-        executable = sum(row["signal"] in {"COMPRAR", "SALIR", "REDUCIR"} for row in rows)
+                is_stale = (datetime.fromisoformat(row["emitted_at_utc"].replace("Z", "+00:00")) - observed).total_seconds() > 900
+            stale += int(is_stale)
+            if (not is_stale and row['data_quality'] >= .9
+                    and payload.get('signal_eligible', True) is True
+                    and row['signal'] in {'COMPRAR', 'SALIR', 'REDUCIR', 'MANTENER/ESPERAR', 'ESPERAR', 'MANTENER'}):
+                eligible.append(row)
+        executable = sum(row["signal"] in {"COMPRAR", "SALIR", "REDUCIR"} for row in eligible)
         latencies = [row["latency_ms"] for row in executions]
         deviations = [abs(row["entry_deviation_bps"]) for row in executions if row["entry_deviation_bps"] is not None]
         first = datetime.fromisoformat(rows[0]["emitted_at_utc"].replace("Z", "+00:00")) if rows else now
         observed_seconds = max(0.0, (now - first).total_seconds())
         return {
             "market_sessions": sessions,
-            "eligible_signals": len(rows),
+            "observed_signals": len(rows),
+            "eligible_signals": len(eligible),
             "positive_executable_signals": executable,
             "execution_observations": len(executions),
             "duplicate_signals": duplicate_count,

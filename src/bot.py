@@ -127,57 +127,54 @@ class ExpenseBot:
             logger.error(f"Error guardando gastos pendientes: {e}")
 
     def run(self):
-        logger.info("Bot iniciado con Gemini... Presiona Stop en la GUI para detener.")
-        
-        # Corrección para Windows: Usar SelectorEventLoopPolicy
-        if os.name == 'nt':
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        logger.info("Iniciando bot de Telegram.")
+        asyncio.run(self._start_polling())
 
-        # Guardar referencia al loop para poder detenerlo después
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        
-        try:
-            self._loop.run_until_complete(self._start_polling())
-        except Exception as e:
-            logger.error(f"Error en el bot: {e}")
-            raise e
-        finally:
-            self._loop.close()
-    
     async def _start_polling(self):
-        """Inicia el polling de forma asíncrona."""
-        from telegram.error import NetworkError, TimedOut
+        """Arranca Telegram y libera recursos aun si falla el inicio."""
+        from telegram.error import NetworkError
 
         self._running = True
         retry_delay = 1.0
-        while self._running:
-            try:
-                await self.application.initialize()
-                break
-            except (NetworkError, TimedOut) as exc:
-                self._polling_network_error(exc)
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(30.0, retry_delay * 1.5)
-        if not self._running:
-            return
-        await self.application.start()
-        await self.application.updater.start_polling(
-            drop_pending_updates=True,
-            # -1 mantiene el servicio vivo ante DNS/Wi-Fi temporalmente caído.
-            # La librería aplica backoff de hasta 30 segundos.
-            bootstrap_retries=-1,
-            error_callback=self._polling_network_error,
-        )
-        
-        # Mantener corriendo hasta que se llame stop
-        while self._running:
-            await asyncio.sleep(0.5)
-        
-        # Limpieza
-        await self.application.updater.stop()
-        await self.application.stop()
-        await self.application.shutdown()
+        app = self.application
+        updater = app.updater
+        try:
+            while self._running:
+                try:
+                    await app.initialize()
+                    await updater.start_polling(
+                        drop_pending_updates=True,
+                        bootstrap_retries=0,
+                        error_callback=self._polling_network_error,
+                    )
+                except NetworkError as exc:
+                    self._polling_network_error(exc)
+                    if updater.running:
+                        await updater.stop()
+                    await app.shutdown()
+                    # initialize() puede fallar después de inicializar el bot
+                    # interno, pero antes de marcar la aplicación como lista.
+                    await app.bot.shutdown()
+                    deadline = time.monotonic() + retry_delay
+                    while self._running and time.monotonic() < deadline:
+                        await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
+                    retry_delay = min(30.0, retry_delay * 1.5)
+                else:
+                    break
+            if self._running:
+                await app.start()
+            while self._running:
+                await asyncio.sleep(0.5)
+        finally:
+            self._running = False
+            if self.scheduler.running:
+                self.scheduler.shutdown(wait=False)
+            if updater.running:
+                await updater.stop()
+            if app.running:
+                await app.stop()
+            await app.shutdown()
+            await app.bot.shutdown()
 
     def _polling_network_error(self, error):
         """Resume fallos transitorios sin inundar la interfaz con tracebacks."""

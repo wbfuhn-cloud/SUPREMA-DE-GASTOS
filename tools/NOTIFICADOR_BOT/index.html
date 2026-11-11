@@ -9,7 +9,7 @@
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/flux_theme.css?v=3.1.0">
-    <link rel="stylesheet" href="/visor/style.css?v=4.2.0">
+    <link rel="stylesheet" href="/visor/style.css?v=4.4.0">
     <!-- Bolsa prioriza desplazamiento fluido: esta vista no carga shaders WebGL
          ni el motor LiquidGL; conserva el tema visual con gradientes CSS. -->
     <script defer src="https://unpkg.com/lucide@latest"></script>
@@ -73,7 +73,7 @@
                 <div class="progress-bar-wrapper">
                     <div id="progress-bar" class="progress-fill" style="width: 0%"></div>
                 </div>
-                <div class="progress-status" id="progress-text">Servicio automático conectado; esperando el siguiente ciclo</div>
+                <div class="progress-status" id="progress-text">Comprobando conexión del proceso automático…</div>
             </div>
         </header>
 
@@ -86,15 +86,19 @@
                 <span id="maturity-solidity" class="maturity-solidity">Calculando solidez</span>
             </div>
             <div class="maturity-grid">
-                <div><span>Implementación</span><strong id="maturity-technical">12/12 técnica</strong></div>
+                <div><span>Validación</span><strong id="maturity-technical">Comprobando evidencia…</strong></div>
                 <div><span>Evidencia</span><strong id="maturity-evidence">Comprobando…</strong></div>
                 <div><span>Paper trading</span><strong id="maturity-paper">Comprobando…</strong></div>
                 <div class="maturity-next"><span>Lo que sigue</span><strong id="maturity-next">Esperando diagnóstico…</strong><small id="maturity-next-detail"></small></div>
             </div>
+            <div id="validation-progress" class="validation-progress" aria-label="Requisitos de validación"></div>
+            <p id="validation-updated" class="validation-updated">Esperando diagnóstico actualizado…</p>
+            <div class="validation-experience"><strong>Tu experiencia · Volátiles</strong><p>Has reportado resultados positivos en SOXS y “TEMP” (símbolo por confirmar). No has tomado posiciones de Gemas. Estos comentarios son experiencias reportadas, pendientes de verificar con precios y fechas; no cuentan como pruebas aprobadas del modelo.</p></div>
             <p id="maturity-notice" class="maturity-notice">Una fase sólo avanza cuando cumple sus parámetros.</p>
         </section>
 
         <!-- Main Content Grid -->
+        <p role="note" class="glass-panel" style="padding:16px;color:#fbbf24">Modo experimental: las tarjetas y Gemas son observaciones, no recomendaciones de compra validadas. El porcentaje histórico no es una probabilidad de ganancia. Consulta la fecha de cada precio.</p>
         <main class="content-grid">
             
             <!-- Left Panel: Data Tables / Cards -->
@@ -144,11 +148,11 @@
 
                 <!-- Gems Tab -->
                 <div class="tab-content" id="gems-tab" role="tabpanel">
-                    <div style="padding: 12px 20px; color: #60A5FA; font-size: 13px; font-weight: 700; background: rgba(0, 82, 255, 0.1); border-bottom: 1px solid var(--glass-border);">
-                        <i class="fa-solid fa-rocket"></i> <strong>Cazador de Gemas (Breakouts):</strong> Filtrando acciones con aumentos masivos de volumen (>1.5x), capitalización media y cruce MACD a punto de estallar.
+                    <div id="gems-status" role="status" aria-live="polite" style="padding: 12px 20px; color: #60A5FA; font-size: 13px; font-weight: 700; background: rgba(0, 82, 255, 0.1); border-bottom: 1px solid var(--glass-border);">
+                        <i class="fa-solid fa-rocket"></i> <strong>Cazador de Gemas (Breakouts):</strong> Cargando el último escaneo y comprobando volumen, RSI, MACD y calidad de datos.
                     </div>
                     <div id="gems-cards-container" class="gbm-cards-grid">
-                        <div class="placeholder-text" style="grid-column: 1/-1; padding: 40px; text-align: center;">No hay gemas detectadas. Inicie un escaneo.</div>
+                        <div class="placeholder-text" style="grid-column: 1/-1; padding: 40px; text-align: center;">Cargando Gemas y candidatos en observación…</div>
                     </div>
                     <div id="gems-table-container" class="table-responsive" style="display: none;">
                         <table class="data-table" id="gems-table">
@@ -297,9 +301,9 @@
                         <p class="placeholder-text">Selecciona un ticker para ver el desglose en tiempo real...</p>
                     </div>
                     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--glass-border);" id="ai-confidence-container">
-                        <h3><i class="fa-solid fa-brain" style="color:#8B5CF6"></i> Confianza IA / Machine Learning</h3>
+                        <h3><i class="fa-solid fa-brain" style="color:#8B5CF6"></i> Histórico comparable / modelo en validación</h3>
                         <div id="ai-confidence-content">
-                            <p class="placeholder-text">Calculando confianza del modelo...</p>
+                            <p class="placeholder-text">Selecciona un activo para consultar la evidencia disponible.</p>
                         </div>
                         <div id="feedback-controls" style="display:none; margin-top:10px;">
                             <label for="feedback-reason" class="feedback-label">Motivo del feedback</label>
@@ -330,7 +334,7 @@
                     </div>
                     <div>
                         <h2>Mi Portafolio de Inversiones</h2>
-                        <span class="subtitle">Monitoreo en tiempo real, veredictos inteligentes y cálculo de rendimiento P&L</span>
+                        <span class="subtitle">Últimos precios consultados, análisis experimental y cálculo de rendimiento P&L</span>
                     </div>
                 </div>
 
@@ -350,9 +354,9 @@
             </div>
 
             <div class="portfolio-traffic-legend" aria-label="Leyenda del semáforo del portafolio">
-                <span class="traffic-item green"><i></i><strong>VERDE</strong> Va bien; mantener y vigilar objetivo.</span>
+                <span class="traffic-item green"><i></i><strong>VERDE</strong> Indicadores favorables; requiere evaluación.</span>
                 <span class="traffic-item yellow"><i></i><strong>AMARILLO</strong> Esperar; faltan datos o hay riesgo moderado.</span>
-                <span class="traffic-item red"><i></i><strong>ROJO</strong> Venta o reducción prioritaria.</span>
+                <span class="traffic-item red"><i></i><strong>ROJO</strong> Revisar riesgo y datos de la posición.</span>
             </div>
 
             <!-- Formulario para agregar posiciones con diseño amplio y espacioso -->
@@ -384,13 +388,13 @@
                             <th style="min-width: 140px;">Ticker</th>
                             <th style="min-width: 140px;">Posición</th>
                             <th style="min-width: 150px;">Precio Actual</th>
-                            <th style="min-width: 260px;">Veredicto Asesor</th>
+                            <th style="min-width: 260px;">Análisis experimental</th>
                             <th style="min-width: 200px;">Ganancia / Pérdida</th>
                             <th style="width: 80px; text-align: center;">Acción</th>
                         </tr>
                     </thead>
                     <tbody id="portfolio-tbody">
-                        <tr class="empty-row"><td colspan="6">Agrega tus posiciones arriba para que el asesor las monitoree.</td></tr>
+                        <tr class="empty-row"><td colspan="6">Agrega tus posiciones para consultar precios y rendimiento.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -444,7 +448,7 @@
     window.addEventListener('error', function(ev) { handleGlobalError(ev.message || ev.error, ev.filename, ev.lineno, ev.error && ev.error.stack); });
     window.addEventListener('unhandledrejection', function(ev) { handleGlobalError(ev.reason && (ev.reason.message || ev.reason), '', null, ev.reason && ev.reason.stack); });
     </script>
-    <script src="/visor/app.js?v=4.2.0"></script>
+    <script src="/visor/app.js?v=4.4.0"></script>
     <script>try { lucide.createIcons(); } catch(e) {}</script>
     <!-- Liquid Glass macOS v2.7.7: desactivado temporalmente para Fase 0
     <script>

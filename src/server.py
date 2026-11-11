@@ -9,6 +9,8 @@ import threading
 import time as _time
 import json
 import calendar
+import tempfile
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 # ─── Path ────────────────────────────────────────────────────────────────────
@@ -123,6 +125,8 @@ def _ensure_visor_loaded():
 
 # ─── Flask ───────────────────────────────────────────────────────────────────
 app = Flask(__name__)
+from src.json_provider import FiniteJSONProvider
+app.json = FiniteJSONProvider(app)
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 CORS(app)
 operations_metrics = OperationalMetrics()
@@ -262,7 +266,7 @@ def _load_scan_persistence():
                             ),
                             'Data_Quality': quote.get('quality_score', 0.0),
                             'Data_Quality_Issues': quote.get('quality_issues', []),
-                            'Signal_Eligible': not quote.get('is_stale', True) and quote.get('quality_score', 0.0) >= 0.90,
+                            'Signal_Eligible': result.get('Signal_Eligible') is True and not quote.get('is_stale', True) and quote.get('quality_score', 0.0) >= 0.90,
                         })
                     loaded_results = upgraded
                 except Exception as exc:
@@ -277,17 +281,34 @@ def _load_scan_persistence():
 
 def _save_scan_persistence():
     """Guarda el escaneo actual a disco."""
+    temporary = None
     try:
         os.makedirs(os.path.dirname(SCAN_CACHE_FILE), exist_ok=True)
-        with open(SCAN_CACHE_FILE, 'w', encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=os.path.dirname(SCAN_CACHE_FILE), prefix='scan-', suffix='.tmp', delete=False) as f:
+            temporary = f.name
+            from src.json_provider import finite_json
             json.dump({
-                'results': SCAN_STATE['results'],
-                'market_context': SCAN_STATE['market_context'],
+                'results': finite_json(SCAN_STATE['results']),
+                'market_context': finite_json(SCAN_STATE['market_context']),
                 'data_contract_version': '3.0',
-                'generated_at_utc': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-            }, f, indent=4)
+                'generated_at_utc': SCAN_STATE.get('generated_at_utc')
+            }, f, allow_nan=False)
+        for attempt in range(6):
+            try:
+                os.replace(temporary, SCAN_CACHE_FILE)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                _time.sleep(.05 * (attempt + 1))
     except Exception as e:
         logger.error(f"Error guardando persistencia de escaneo: {e}")
+    finally:
+        if temporary and os.path.exists(temporary):
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 def _refresh_external_scan_results() -> None:
@@ -298,6 +319,20 @@ def _refresh_external_scan_results() -> None:
             _load_scan_persistence()
     except OSError:
         pass
+
+
+def _current_scan_view():
+    """Evalúa frescura al consultar, sin modificar el snapshot del escáner."""
+    from market_data import ensure_quote_contract
+    view = []
+    for row in SCAN_STATE['results']:
+        quote = ensure_quote_contract(row)
+        eligible = row.get('Signal_Eligible') is True and not quote.get('is_stale', True)
+        view.append({**row, 'Quote': quote, 'Signal_Eligible': eligible,
+                     'Signal_State': row.get('Signal_State') if eligible else 'SIN SEÑAL',
+                     'Research_Only': True, 'Execution_Allowed': False,
+                     'Purchase_Candidate_Today': False})
+    return view
 
 # Cargar la persistencia inmediatamente al iniciar el módulo
 try:
@@ -332,8 +367,7 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
         SCAN_STATE['stop_event'].clear()
         SCAN_STATE['progress'] = 0.0
         SCAN_STATE['message'] = 'Iniciando escaneo...'
-        SCAN_STATE['results'] = []
-        SCAN_STATE['market_context'] = None
+        # Conservar el último snapshot completo hasta terminar el siguiente.
 
     try:
         if not fetch_stock_data:
@@ -410,7 +444,9 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
                             'model_version': result.get('Model_Version') or 'unavailable',
                             'rules_version': result.get('Fusion_Version') or 'unknown',
                             'emitted_at_utc': SCAN_STATE['generated_at_utc'],
-                            'market_session': quote.get('session') or SCAN_STATE['generated_at_utc'][:10],
+                            'market_session': datetime.now(timezone.utc).astimezone(ZoneInfo('America/New_York')).date().isoformat(),
+                            'quote': quote,
+                            'signal_eligible': result.get('Signal_Eligible') is True,
                         }, paper_protocol['configuration_hash'])
             except Exception as exc:
                 logger.error(f"No se pudo registrar paper trading: {exc}", exc_info=True)
@@ -455,7 +491,7 @@ def _run_scan_worker(use_cache: bool = True, max_workers: int = 15, source: str 
                     root_dir, token, os.getenv("TELEGRAM_CHAT_ID", "")
                 )
                 
-                if token and chat_id:
+                if token and chat_id and os.getenv('BOLSA_SEND_NOTIFICATIONS', '1') == '1':
                     requests.post(
                         f"https://api.telegram.org/bot{token}/sendMessage",
                         json={"chat_id": chat_id, "text": summary_msg, "parse_mode": "Markdown"},
@@ -595,7 +631,7 @@ def run_live_alert_loop():
                         action = "sell"
                         reason = f"Estado {signal_state}, heurística {r.get('Heuristic_Version')} y confianza AI ({ai_confidence*100:.1f}%). {r.get('Nota', '')}"
                         
-                    if action and not learner.has_recent_alert(ticker, action):
+                    if action and current_project_gate().get('real_money_enabled') and os.getenv('BOLSA_SEND_NOTIFICATIONS', '1') == '1' and not learner.has_recent_alert(ticker, action):
                         # Enviar alerta Telegram
                         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
                         chat_id = resolve_telegram_chat_id(
@@ -1080,6 +1116,7 @@ def scan_status():
         'progress':      float(scan_view.get('progress') or 0.0),
         'message':       scan_view.get('message') or SCAN_STATE['message'],
         'results_count': int(scan_view.get('results_count', len(SCAN_STATE['results']))),
+        'generated_at_utc': SCAN_STATE.get('generated_at_utc'),
         'exchange_rate': er,
         'automation': {
             **automation_view,
@@ -1090,19 +1127,29 @@ def scan_status():
     })
 
 
+def _finite_scan_json(value):
+    """JSON estándar: métricas numéricas ausentes se publican como null."""
+    import math
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _finite_scan_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_scan_json(item) for item in value]
+    return value
+
+
 @app.route('/api/scan/results', methods=['GET'])
 def get_results():
     _refresh_external_scan_results()
     if not SCAN_STATE['results']:
         _load_scan_persistence()
-    if SCAN_STATE['is_scanning']:
-        return jsonify({'status': 'error', 'message': 'Escaneo en progreso'}), 409
     er = SCAN_STATE.get('exchange_rate', 20.5)
     for r in SCAN_STATE['results']:
         if 'Price_MXN' in r and r.get('Price', 0) > 0:
             er = round(r['Price_MXN'] / r['Price'], 4)
             break
-    results = SCAN_STATE['results']
+    results = _current_scan_view()
     kill_status = operations_kill_switch.status()
     if kill_status['active']:
         results = [{**row, 'Signal_State': 'SIN SEÑAL', 'Signal_Eligible': False,
@@ -1123,7 +1170,8 @@ def get_results():
             **row,
             'High_Volatility_Rank': rank,
             'Purchase_Candidate_Today': (
-                row.get('Signal_Eligible') is True
+                current_project_gate().get('real_money_enabled') is True
+                and row.get('Signal_Eligible') is True
                 and row.get('Signal_State') == 'COMPRAR'
                 and not row.get('Is_Leveraged', False)
             ),
@@ -1132,16 +1180,18 @@ def get_results():
     ]
     from gem_selector import select_daily_gems
     daily_gems = select_daily_gems(results, limit=50)
-    return jsonify({
+    return jsonify(_finite_scan_json({
         'status':          'ok',
         'data_contract_version': '3.0',
         'results':        results,
         'top_10_high_volatility': top_high_volatility,
         'daily_gems': daily_gems,
+        'research_only': True,
+        'is_scanning': SCAN_STATE['is_scanning'],
         'market_context': SCAN_STATE['market_context'],
         'exchange_rate':  er,
         'generated_at_utc': SCAN_STATE.get('generated_at_utc'),
-    })
+    }))
 
 
 @app.route('/api/bolsa/operations', methods=['GET'])
@@ -1157,6 +1207,7 @@ def bolsa_release_status():
 
 @app.route('/api/bolsa/maturity', methods=['GET'])
 def bolsa_maturity_status():
+    _refresh_external_scan_results()
     if not paper_ledger or not phase9_approval_fn:
         return jsonify({'status': 'error', 'message': 'Estado de madurez no disponible'}), 503
     metrics = paper_ledger.metrics()
@@ -1168,7 +1219,7 @@ def bolsa_maturity_status():
         paper_metrics=metrics,
         paper_gate=paper_gate,
         release_gate=current_project_gate(),
-        scan_results=SCAN_STATE.get('results', []),
+        scan_results=_current_scan_view(),
     )
     return jsonify({'status': 'ok', 'maturity': maturity})
 
@@ -1209,6 +1260,7 @@ def adaptive_experiment_status():
 
 @app.route('/api/bolsa/transparency', methods=['GET'])
 def bolsa_transparency():
+    _refresh_external_scan_results()
     if not all((signal_explanation_fn, adaptive_ai_status_fn, paper_ledger, phase9_approval_fn)):
         return jsonify({'status': 'error', 'message': 'Transparencia no disponible'}), 503
     paper_metrics = paper_ledger.metrics()
@@ -1222,7 +1274,7 @@ def bolsa_transparency():
         'status': 'ok',
         'adaptive_ai': adaptive_ai_status_fn(ml_status=ml, learner_stats=learner, paper_status=paper_gate),
         'paper_trading': {'metrics': paper_metrics, 'approval': paper_gate},
-        'signals': [signal_explanation_fn(row, SCAN_STATE.get('generated_at_utc')) for row in SCAN_STATE['results']],
+        'signals': [signal_explanation_fn(row, SCAN_STATE.get('generated_at_utc')) for row in _current_scan_view()],
     })
 
 

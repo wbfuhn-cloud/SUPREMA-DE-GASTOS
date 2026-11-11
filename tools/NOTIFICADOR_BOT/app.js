@@ -59,6 +59,9 @@ let topHighVolatility = [];
 let dailyGems = [];
 let statusInterval = null;
 let allResults = [];
+let lastResultsGeneratedAt = null;
+let statusRequestPending = false;
+let resultsRequestPending = false;
 let selectedTickerData = null;
 
 // El documento usa .page-content como scroller. Durante el movimiento se
@@ -233,14 +236,42 @@ if (btnRefreshAi) {
     });
 }
 
+function renderValidationProgress(maturity) {
+    const evidence = maturity.evidence || {};
+    const number = value => Number(value || 0).toLocaleString('es-MX');
+    const items = [
+        ['Sesiones de mercado', evidence.market_sessions, 'sesiones'],
+        ['Observaciones elegibles', evidence.eligible_signals, 'observaciones'],
+        ['Señales ejecutables', evidence.executable_signals, 'señales'],
+        ['Controles de simulación', {current:evidence.paper_checks?.passed, required:evidence.paper_checks?.total, approved:evidence.paper_checks?.approved}, 'controles']
+    ];
+    const cards = items.map(([title, item = {}, unit]) => {
+        const known = Number.isFinite(item.current) && Number.isFinite(item.required) && item.required > 0;
+        const percent = known ? Math.min(100, Math.max(0, item.current / item.required * 100)) : 0;
+        return `<article class="validation-card ${item.approved ? 'passed' : ''}"><h3>${title}</h3><strong>${known ? `${number(item.current)} <small>/ ${number(item.required)}</small>` : 'Sin datos'}</strong><progress max="100" value="${percent}" aria-label="${title}"></progress><p>${item.approved ? 'Cumplido' : known ? `Faltan ${number(Math.max(0,item.required-item.current))} ${unit}` : 'Pendiente de evaluar'}</p></article>`;
+    });
+    const quality = evidence.data_quality || {};
+    cards.push(`<article class="validation-card ${quality.approved ? 'passed' : ''}"><h3>Calidad de datos</h3><strong>${quality.approved ? 'Aprobada' : 'Pendiente'}</strong><p>${Number.isFinite(quality.average) ? `Promedio ${(quality.average*100).toFixed(1)}% · ${number(quality.passing)} de ${number(quality.observed)} aptos` : 'Sin muestra actual'}</p><small>Se revisa frescura y calidad de las observaciones utilizadas.</small></article>`);
+    const approved = maturity.release_decision === 'APPROVED_FOR_PRODUCTION' || maturity.current_phase?.state === 'APROBADA';
+    cards.push(`<article class="validation-card ${approved ? 'passed' : ''}"><h3>Aprobación para producción</h3><strong>${approved ? 'Aprobada' : 'Pendiente'}</strong><p>${approved ? 'Liberación controlada' : 'Falta completar validación y revisión final'}</p><small>El avance no representa probabilidad de ganar.</small></article>`);
+    return cards.join('');
+}
+
+let maturityRequestPending = false;
 async function loadMaturityStatus() {
     const banner = document.getElementById('maturity-banner');
-    if (!banner) return;
+    if (!banner || maturityRequestPending) return;
+    maturityRequestPending = true;
     try {
-        const response = await fetch(`${API_URL}/bolsa/maturity`);
+        const response = await fetch(`${API_URL}/bolsa/maturity`, {signal: AbortSignal.timeout(15000)});
         const data = await response.json();
         if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
         const maturity = data.maturity || {};
+        const progressPanel = document.getElementById('validation-progress');
+        if (progressPanel) progressPanel.innerHTML = renderValidationProgress(maturity);
+        const updated = document.getElementById('validation-updated');
+        if (updated) updated.textContent = `Consultado: ${new Date().toLocaleString('es-MX', {timeZone:'America/Mexico_City'})} · CDMX · actualización cada minuto`;
+
         const phase = maturity.current_phase || {};
         const solidity = maturity.solidity || {};
         const evidence = maturity.evidence || {};
@@ -263,7 +294,7 @@ async function loadMaturityStatus() {
         const notice = document.getElementById('maturity-notice');
         if (title) title.textContent = `Fase ${phase.number ?? '—'} · ${phase.name || 'Estado no disponible'}`;
         if (solid) solid.textContent = `${solidity.label || 'Sin evaluar'} · ${solidity.score ?? 0}%`;
-        if (technical) technical.textContent = `${maturity.technical?.completed ?? 0}/${maturity.technical?.total ?? 12} · ${maturity.technical?.label || ''}`;
+        if (technical) technical.textContent = `${maturity.technical?.completed == null ? 'Sin evaluación completa' : `${maturity.technical.completed}/${maturity.technical.total ?? 12}`} · ${maturity.technical?.label || ''}`;
         if (evidenceEl) evidenceEl.textContent = qualityText;
         if (paper) paper.textContent = `${sessions.current ?? 0}/${sessions.required ?? 60} sesiones · ${signals.current ?? 0}/${signals.required ?? 300} señales`;
         if (next) next.textContent = maturity.next_step?.label || 'Completar gates pendientes';
@@ -275,9 +306,14 @@ async function loadMaturityStatus() {
         const next = document.getElementById('maturity-next');
         if (title) title.textContent = 'Fase no verificable';
         if (next) next.textContent = 'Restablecer el diagnóstico antes de avanzar';
+        const updated = document.getElementById('validation-updated');
+        if (updated) updated.textContent = 'Sin conexión: los valores anteriores no están confirmados. Reintentando cada minuto.';
         console.error('Error loading maturity status', error);
+    } finally {
+        maturityRequestPending = false;
     }
 }
+setInterval(loadMaturityStatus, 60000);
 
 const btnFeedbackBad = document.getElementById("btn-feedback-bad");
 const btnFeedbackGood = document.getElementById("btn-feedback-good");
@@ -556,8 +592,8 @@ async function handleAddPortfolio() {
     const qty = parseFloat(portQty.value);
     const price = parseFloat(portPrice.value);
     
-    if (!ticker || isNaN(qty) || isNaN(price)) {
-        showToast("Completa todos los campos correctamente.", "error");
+    if (!ticker || !Number.isFinite(qty) || !Number.isFinite(price) || qty <= 0 || price <= 0) {
+        showToast("Indica ticker, cantidad y precio de compra mayores que cero.", "error");
         return;
     }
     
@@ -568,20 +604,29 @@ async function handleAddPortfolio() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ticker, qty, price })
         });
-        const data = await response.json();
+        const raw = await response.text();
+        let data;
+        try { data = JSON.parse(raw); }
+        catch { throw new Error(`El servidor devolvió una respuesta inválida (HTTP ${response.status}).`); }
         if (!response.ok || data.status !== 'ok') throw new Error(data.message || `HTTP ${response.status}`);
         portTicker.value = "";
         portPrice.value = "";
-        await analyzePortfolio();
+        renderPortfolioSnapshot(data.portfolio || {});
         const cloudOk = data.sync && data.sync.synchronized;
         showToast(cloudOk
             ? `${ticker} quedó guardado y sincronizado en la nube.`
             : `${ticker} quedó guardado sólo en este dispositivo.`, cloudOk ? "success" : "warning");
+        // El guardado ya está confirmado; actualizar precios es independiente.
+        analyzePortfolio().catch(error => console.error("Error actualizando análisis", error));
     } catch (e) {
         console.error("Error adding to portfolio", e);
-        showToast(`No fue posible guardar ${ticker}.`, "error");
+        const detail = e instanceof TypeError
+            ? 'No hay conexión con el servidor. En esta computadora abre http://localhost:5050/bolsa; la dirección de red anterior puede haber cambiado.'
+            : (e.message || 'Error desconocido.');
+        showToast(`No fue posible guardar ${ticker}. ${detail}`, "error");
+    } finally {
+        btnAddPortfolio.disabled = false;
     }
-    btnAddPortfolio.disabled = false;
 }
 
 function renderPortfolioSnapshot(portfolio) {
@@ -703,6 +748,7 @@ async function analyzePortfolio() {
                                 <span class="portfolio-signal ${escapeHtml(positionStatus.color)}">${escapeHtml(positionStatus.label)}</span>
                                 <strong class="portfolio-action-summary">${escapeHtml(positionStatus.summary || positionStatus.reason)}</strong>
                                 <span class="portfolio-signal-reason">${escapeHtml(positionStatus.reason)}${positionStatus.confidence ? ` · Confianza ${escapeHtml(positionStatus.confidence)}` : ''}</span>
+                                ${tradingGuide(row, row.entry_price)}
                                 ${positionStatus.monitoring_note ? `<span class="portfolio-monitoring-note">${escapeHtml(positionStatus.monitoring_note)}</span>` : ''}
                                 ${row.verdict ? `<span class="badge ${badgeClass} portfolio-engine-badge">Motor: ${escapeHtml(row.verdict)}</span>` : ''}
                                 ${reasonsList ? `<details class="portfolio-technical-details"><summary>Ver detalle técnico</summary><span>${escapeHtml(reasonsList)}</span></details>` : ''}
@@ -727,7 +773,7 @@ async function analyzePortfolio() {
                     tr.style.cursor = "pointer";
                     tr.title = "Haz clic para ver análisis en el panel superior";
                     tr.addEventListener("click", (e) => {
-                        if (e.target.closest('button')) return;
+                        if (e.target.closest('button, details')) return;
                         inspectPortfolioTicker(row);
                     });
                 }
@@ -772,10 +818,11 @@ window.scrollToPortfolio = scrollToPortfolio;
 function inspectPortfolioTicker(row) {
     const existing = allResults.find(r => r.Ticker === row.ticker);
     if (existing) {
-        selectTicker(existing, null);
+        selectTicker({...existing, Entry_Price: row.entry_price}, null);
     } else {
         selectTicker({
             Ticker: row.ticker,
+            Entry_Price: row.entry_price,
             Price: row.price,
             Price_MXN: row.price_mxn,
             Viabilidad: row.verdict || 'Portafolio',
@@ -830,8 +877,11 @@ function startStatusPolling() {
 }
 
 async function checkScanStatus() {
+    if (statusRequestPending) return;
+    statusRequestPending = true;
     try {
-        const res = await fetch(`${API_URL}/scan/status`);
+        const res = await fetch(`${API_URL}/scan/status`, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) throw new Error(`Estado HTTP ${res.status}`);
         const data = await res.json();
         
         const automation = data.automation || {};
@@ -850,11 +900,11 @@ async function checkScanStatus() {
         if (!data.is_scanning && isScanning) {
             // Scan just finished
             isScanning = false;
-            fetchResults();
+            await fetchResults();
             updateCacheStats();
         } else if (data.is_scanning) {
             isScanning = true;
-        } else if (!data.is_scanning && !isScanning && allResults.length === 0) {
+        } else if (!data.is_scanning && !isScanning && (allResults.length === 0 || (data.generated_at_utc && data.generated_at_utc !== lastResultsGeneratedAt))) {
              // Si no hay resultados cargados pero hay disponibles en el servidor, traerlos
              if (data.results_count > 0) {
                  await fetchResults();
@@ -862,18 +912,29 @@ async function checkScanStatus() {
         }
     } catch (e) {
         console.error("Error checking status", e);
+        const autoLabel = document.getElementById('auto-scan-label');
+        if (autoLabel) {
+            autoLabel.classList.add('worker-offline');
+            autoLabel.textContent = 'IA AUTOMÁTICA · SIN CONEXIÓN · reintentando';
+        }
+    } finally {
+        statusRequestPending = false;
     }
 }
 
 async function fetchResults() {
+    if (resultsRequestPending) return;
+    resultsRequestPending = true;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
         const res = await fetch(`${API_URL}/scan/results`, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error(`Resultados HTTP ${res.status}`);
         const data = await res.json();
+        clearTimeout(timeoutId);
         
         allResults = data.results || [];
+        lastResultsGeneratedAt = data.generated_at_utc || null;
         topHighVolatility = data.top_10_high_volatility || [];
         dailyGems = data.daily_gems || [];
         updateMarketContext(data.market_context);
@@ -890,6 +951,9 @@ async function fetchResults() {
                                 <button onclick="location.reload()" class="btn primary-btn" style="margin-top:15px">Reintentar</button>`;
             document.body.appendChild(errDiv);
         }
+    } finally {
+        clearTimeout(timeoutId);
+        resultsRequestPending = false;
     }
 }
 
@@ -944,6 +1008,33 @@ function switchViewMode(mode) {
     renderTables();
 }
 
+const POSITION_LOSS_LIMIT_PCT = 15;
+
+function tradingGuide(row, entryPrice = null) {
+    const entry = Number(entryPrice);
+    const hasEntry = Number.isFinite(entry) && entry > 0;
+    const reference = hasEntry ? entry : Number(row.Price ?? row.price);
+    const valid = Number.isFinite(reference) && reference > 0;
+    const currency = escapeHtml(row.Quote?.currency || 'USD');
+    const stop = valid ? `$${(reference * (1 - POSITION_LOSS_LIMIT_PCT / 100)).toFixed(2)} ${currency}` : 'N/D';
+    const date = row.Quote?.received_at || lastResultsGeneratedAt;
+    const parsed = date ? new Date(date) : null;
+    const timestamp = parsed && Number.isFinite(parsed.getTime())
+        ? parsed.toLocaleString('es-MX', {timeZone:'America/Mexico_City'}) : 'Fecha no disponible';
+    return `<div class="trading-guide">
+        <strong>Tu límite por posición: −${POSITION_LOSS_LIMIT_PCT}%</strong>
+        <p>${hasEntry ? 'Umbral desde tu entrada' : 'Ejemplo si compras al precio mostrado'}: <strong>${stop}</strong></p>
+        <small>${hasEntry ? 'Base: precio de entrada registrado.' : 'Al comprar, recalcular: entrada real × 0.85.'} No garantiza la pérdida máxima; puede haber saltos de precio. No coloca órdenes.</small>
+        <details><summary>Cuándo revisar compra o venta</summary>
+            <p>Compra: revisar 30–60 min después de la apertura de Nueva York, tras completar el escaneo y confirmar la señal. No garantiza un mejor precio.</p>
+            <p>Venta: si alcanza tu límite de pérdida, revisar de inmediato con tu intermediario; no esperar al siguiente escaneo. Para ganancias, seguir el objetivo definido antes de entrar.</p>
+            <p>Antes de operar: confirmar precio y diferencial en tu casa de bolsa. Una orden limitada controla el precio, pero puede no ejecutarse.</p>
+            <p>La página consulta cada 5 s; el análisis se programa cada 60 min. Datos consultados: ${escapeHtml(timestamp)} (CDMX). Revisa también la fecha de cotización.</p>
+            <p>Modelo en validación: señales para simulación, sin recomendación validada con dinero real. El 15% corresponde a cada posición, no al capital total.</p>
+        </details>
+    </div>`;
+}
+
 function renderGBMCards(container, items) {
     if (!container) return;
     container.innerHTML = "";
@@ -955,7 +1046,7 @@ function renderGBMCards(container, items) {
     items.forEach(row => {
         const card = document.createElement("div");
         card.className = "gbm-stock-card";
-        card.onclick = () => selectTicker(row, card);
+        card.onclick = (event) => { if (!event.target.closest('details')) selectTicker(row, card); };
         
         const badgeClass = getBadgeClass(row.Viabilidad);
         const vol = row.Volatility_Percent ? `${row.Volatility_Percent.toFixed(2)}%` : '0%';
@@ -1004,6 +1095,7 @@ function renderGBMCards(container, items) {
             <div class="data-freshness ${dataStatus.cssClass}" title="${escapeHtml(dataStatus.detail)}">
                 ${dataStatus.label} · ${escapeHtml(dataStatus.detail)}
             </div>
+            ${tradingGuide(row)}
         `;
 
         container.appendChild(card);
@@ -1063,7 +1155,7 @@ function renderTables() {
             
             const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
             tr.innerHTML = `
-                <td><strong>${row.Ticker}${levWarning}</strong></td>
+                <td><strong>${row.Ticker}${levWarning}</strong>${tradingGuide(row)}</td>
                 <td>$${(row.Price || 0).toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
                 <td style="color: var(--warning-color); font-weight: bold;">${vol}</td>
                 <td><span class="badge ${badgeClass}">${row.Viabilidad}</span></td>
@@ -1105,7 +1197,7 @@ function renderTables() {
             
             const levWarning = row.Is_Leveraged ? '<span class="badge evitar" style="font-size:9px;margin-left:4px;">APALANCADO</span>' : '';
             tr.innerHTML = `
-                <td><strong>${row.Ticker}${levWarning}</strong></td>
+                <td><strong>${row.Ticker}${levWarning}</strong>${tradingGuide(row)}</td>
                 <td>$${(row.Price || 0).toFixed(2)} <br><small style="color:var(--text-secondary)">$${row.Price_MXN?.toFixed(2) || 'N/A'} MXN</small></td>
                 <td>$${capStr}</td>
                 <td style="color: var(--accent-color); font-weight: bold;">${row.Vol_Ratio || 0}x</td>
@@ -1145,6 +1237,7 @@ function selectTicker(row, trElement) {
             </div>
         </div>
 
+        ${tradingGuide(row, row.Entry_Price)}
         <div class="detail-section data-contract ${dataStatus.cssClass}">
             <h3>Calidad y frescura</h3>
             <p><strong>${dataStatus.label}</strong></p>

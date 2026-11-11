@@ -190,14 +190,14 @@ def quote_from_history(
         raise ValueError(f"Precio inválido para {symbol}")
 
     market_ts = _as_utc(df.index[-1])
-    received = received_at or utc_now()
+    received = received_at or (_as_utc(df.attrs['fetched_at_utc']) if df.attrs.get('fetched_at_utc') else utc_now())
     if received.tzinfo is None:
         received = received.replace(tzinfo=timezone.utc)
     freshness = max(0, int((received.astimezone(timezone.utc) - market_ts).total_seconds()))
     stale_limit = DAILY_STALE_SECONDS if interval.endswith("d") else INTRADAY_STALE_SECONDS
     is_stale = freshness > stale_limit
 
-    return {
+    quote = {
         "contract_version": CONTRACT_VERSION,
         "symbol": symbol.upper(),
         "price": round(float(price), 6),
@@ -215,12 +215,31 @@ def quote_from_history(
         "quality_score": validation["quality_score"],
         "quality_issues": validation["issues"],
     }
+    return ensure_quote_contract({'Quote': quote}, received_at=received_at)
 
 
 def ensure_quote_contract(result: Mapping[str, Any], received_at: datetime | None = None) -> dict[str, Any]:
     existing = result.get("Quote")
     if isinstance(existing, dict) and existing.get("contract_version") == CONTRACT_VERSION:
-        return dict(existing)
+        quote = dict(existing)
+        now = received_at or utc_now()
+        try:
+            from auto_scan_schedule import nyse_market_is_open
+            market_ts = _as_utc(quote['market_timestamp'])
+            downloaded = _as_utc(quote['received_at'])
+            age = max(0, int((now - market_ts).total_seconds()))
+            download_age = max(0, int((now - downloaded).total_seconds()))
+            daily = str(quote.get('interval', '')).endswith('d')
+            limit = DAILY_STALE_SECONDS if daily else INTRADAY_STALE_SECONDS
+            quote['freshness_seconds'] = age
+            quote['received_age_seconds'] = download_age
+            # La fecha de una vela diaria es su apertura, no la hora de la
+            # última cotización. Durante sesión el snapshot debe renovarse.
+            quote['is_stale'] = age > limit or (nyse_market_is_open(now) and download_age > 900)
+            quote['evaluated_at'] = _iso_utc(now)
+        except (ValueError, TypeError, KeyError):
+            quote['is_stale'] = True
+        return quote
     received = received_at or utc_now()
     symbol = str(result.get("Ticker") or result.get("ticker") or "UNKNOWN").upper()
     price = result.get("Price", result.get("price"))

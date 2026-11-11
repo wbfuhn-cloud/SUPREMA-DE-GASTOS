@@ -161,6 +161,9 @@ def _fetch_history_raw(ticker: str, period='1y', interval='1d') -> pd.DataFrame 
         if not result:
             return None
         res = result[0]
+        metadata = res.get('meta') or {}
+        if str(metadata.get('symbol', ticker)).upper() != ticker.upper():
+            raise ValueError('El proveedor devolvió un símbolo diferente al solicitado')
         timestamps = res.get('timestamp', [])
         ohlcv = res.get('indicators', {}).get('quote', [{}])[0]
         if not timestamps or not ohlcv:
@@ -183,6 +186,9 @@ def _fetch_history_raw(ticker: str, period='1y', interval='1d') -> pd.DataFrame 
         # reconciliar una misma cotización entre módulos.
         df.index = df.index.tz_convert('UTC')  # type: ignore
         df = df.dropna(subset=['Close'])
+        df.attrs['fetched_at_utc'] = pd.Timestamp.now(tz='UTC').isoformat()
+        df.attrs['instrument_name'] = metadata.get('longName') or metadata.get('shortName') or ''
+        df.attrs['exchange'] = metadata.get('exchangeName') or ''
         return df if len(df) > 0 else None
     except Exception as e:
         logger.debug(f"_fetch_history_raw({ticker}): {e}")
@@ -262,13 +268,21 @@ def load_from_cache(ticker, kind):
         p = _cache_path(ticker, kind)
         if not p.exists(): return None
         with open(p, 'rb') as f:
-            return pickle.load(f)['data']
+            cached = pickle.load(f)
+            data = cached['data']
+            if kind == 'history' and isinstance(data, pd.DataFrame):
+                data.attrs.setdefault('fetched_at_utc', cached['ts'].astimezone().isoformat())
+            return data
     except Exception as e:
         logger.debug(f"load_from_cache({ticker}): {e}")
         return None
 
 def is_cache_valid(ticker, kind, max_hours=6):
     try:
+        if kind == 'history':
+            from auto_scan_schedule import nyse_market_is_open
+            if nyse_market_is_open():
+                max_hours = min(max_hours, 5 / 60)
         p = _cache_path(ticker, kind)
         if not p.exists(): return False
         with open(p, 'rb') as f:
@@ -646,6 +660,8 @@ def process_single_ticker(ticker: str, use_cache=True, prefetched_history=None) 
 
         return {
             'Ticker':           ticker,
+            'Nombre':           history.attrs.get('instrument_name') or ticker,
+            'Exchange':         history.attrs.get('exchange') or '',
             'Price':            round(price, 2),
             'Score':            scores['score_total'],
             'ML_Score':         ml_score,
@@ -827,14 +843,8 @@ def fetch_stock_data(progress_callback=None, stop_event=None, use_cache=True, ma
     market_context = get_market_regime()
     score_mod = market_context['score_modifier']
     
-    # ── IA ADAPTATIVA: Verificar resultados anteriores antes de iniciar ──────
-    if get_learner:
-        try:
-            cb("IA: Verificando resultados de días anteriores...", 0.01)
-            learner = get_learner()
-            learner.verify_past_recommendations()
-        except Exception as e:
-            logger.error(f"Error verificando recomendaciones: {e}")
+    # La verificación corre en PredictionRecovery, sin bloquear cotizaciones
+    # nuevas ni ejecutar dos verificadores simultáneos sobre el mismo ledger.
 
     cb(f"Obteniendo lista de tickers ({source})...", 0.02)
     tickers = get_tickers_by_source(source, use_cache)

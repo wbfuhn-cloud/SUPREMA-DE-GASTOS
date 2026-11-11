@@ -61,6 +61,8 @@ class RecommendationDB:
     def __init__(self, db_path: str = str(DB_PATH)):
         self.db_path = db_path
         self._init_db()
+        # La consulta de confianza usa el ledger incluso al crear la DB directamente.
+        PredictionLedger(db_path)
 
     def _get_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=15)
@@ -746,9 +748,12 @@ class AdaptiveLearner:
         Se ejecuta al inicio de cada escaneo.
         """
         from stock_scanner import _fetch_history_raw
+        histories = {}
 
         def provider(symbol, _entry, _due):
-            return _fetch_history_raw(symbol, period='3mo')
+            if symbol not in histories:
+                histories[symbol] = _fetch_history_raw(symbol, period='2y')
+            return histories[symbol]
 
         summary = self.ledger.verify_due(provider, costs=CostPolicy())
         logger.info(f"🧠 Verificación temporal completada: {summary}")

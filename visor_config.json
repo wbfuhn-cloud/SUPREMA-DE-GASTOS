@@ -23,45 +23,30 @@
     },
     "watchlist": [],
     "portfolio": {
-        "TEM": {
+        "APP": {
             "qty": 1.0,
-            "avg_price": 52.0,
-            "updated_at": "2026-05-19T23:40:44.454339"
+            "avg_price": 351.26,
+            "updated_at": "2026-11-05T17:02:19.942343Z"
+        },
+        "NOW": {
+            "qty": 1.0,
+            "avg_price": 108.0,
+            "updated_at": "2026-11-03T20:31:38.618040Z"
         },
         "SOXS": {
             "qty": 1.0,
-            "avg_price": 9.0,
-            "updated_at": "2026-05-27T08:48:46.023601"
+            "avg_price": 53.5,
+            "updated_at": "2026-11-03T04:50:26.068743Z"
         },
-        "ARM": {
+        "TEM": {
             "qty": 1.0,
-            "avg_price": 223.15,
-            "updated_at": "2026-05-20T11:38:42.633789"
+            "avg_price": 71.77,
+            "updated_at": "2026-10-09T16:36:10.435984Z"
         },
-        "APA": {
+        "VST": {
             "qty": 1.0,
-            "avg_price": 40.0,
-            "updated_at": "2026-05-20T11:40:06.721091"
-        },
-        "TER": {
-            "qty": 1.0,
-            "avg_price": 153.0,
-            "updated_at": "2026-05-26T13:41:04.353218"
-        },
-        "ON": {
-            "qty": 1.0,
-            "avg_price": 11.0,
-            "updated_at": "2026-05-27T08:43:54.462162"
-        },
-        "AMAT": {
-            "qty": 1.0,
-            "avg_price": 445.0,
-            "updated_at": "2026-05-27T08:57:41.647478"
-        },
-        "TSLA": {
-            "qty": 1.0,
-            "avg_price": 441.74,
-            "updated_at": "2026-05-27T08:58:15.240174"
+            "avg_price": 144.9,
+            "updated_at": "2026-10-06T01:03:08.193683Z"
         }
     },
     "risk_management": {

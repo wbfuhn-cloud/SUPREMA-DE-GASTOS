@@ -59,7 +59,7 @@ class MlFallbackTests(unittest.TestCase):
                 model_path=str(Path(temp_dir) / "missing.joblib"),
             )
             result = predictor.predict_score({"score": 80})
-            self.assertEqual(result["source"], "fallback")
+            self.assertEqual(result["source"], "heuristic_fallback")
             self.assertIsNone(result["ml_score"])
             self.assertIsNone(result["probability"])
             self.assertEqual(result["confidence_level"], "NO DISPONIBLE")

@@ -5,6 +5,8 @@ import os
 import sys
 import threading
 
+from requests.exceptions import ConnectionError as NetworkConnectionError, Timeout
+
 from dotenv import load_dotenv
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +47,12 @@ def hilo_baz():
                 log_baz.info("Revisión #%s: %s gasto(s) nuevos importados.", run, imported)
             else:
                 log_baz.debug("Revisión #%s: sin correos nuevos.", run)
+        except (NetworkConnectionError, Timeout):
+            log_baz.warning(
+                "[CORREO BAZ] Conexión temporalmente no disponible. "
+                "Se reintentará en %s min; el resto del sistema sigue activo.",
+                EMAIL_INTERVALO // 60,
+            )
         except Exception as exc:
             log_baz.error("Error en revisión #%s: %s", run, exc, exc_info=True)
         stop_event.wait(timeout=EMAIL_INTERVALO)

@@ -61,3 +61,8 @@ Desktop.ini
 # Generated one-time cloud migration
 cloudflare/.generated_legacy_import.sql
 cloudflare/.generated_legacy_import/
+
+# Runtime status, temporary files and private feedback
+database/*.tmp
+database/bolsa_worker_status.json
+database/user_feedback_reports.jsonl

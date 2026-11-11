@@ -73,6 +73,8 @@ class MarketDataContractTests(unittest.TestCase):
 
     def test_missing_interval_is_identified(self):
         df = history(rows=10)
+        # Sesiones bursátiles reales: quitar un domingo no es un hueco NYSE.
+        df.index = pd.bdate_range('2026-09-14', periods=10, tz='UTC')
         df = df.drop(df.index[5])
         result = validate_ohlcv(df)
         self.assertEqual(result["expected_frequency_seconds"], 86400)
@@ -112,7 +114,7 @@ class MarketDataContractTests(unittest.TestCase):
 
 
 class CrossModuleConsistencyTests(unittest.TestCase):
-    def test_portfolio_reuses_canonical_scan_quote_exactly(self):
+    def test_portfolio_reuses_price_and_rechecks_freshness(self):
         df = history()
         quote = quote_from_history(
             "TEST",
@@ -120,11 +122,14 @@ class CrossModuleConsistencyTests(unittest.TestCase):
             received_at=datetime(2026, 10, 1, 20, 1, tzinfo=timezone.utc),
         )
         quote["price"] = 123.456
-        with patch("portfolio_analyzer._fetch_history_raw", return_value=df):
+        with patch("portfolio_analyzer._fetch_history_raw", return_value=df), patch('market_data.utc_now', return_value=datetime(2026, 10, 9, 15, tzinfo=timezone.utc)):
             result = analyze_ticker_strategy("TEST", entry_price=100, qty=2, quote_override=quote)
         self.assertIsNone(result["error"])
         self.assertEqual(result["price"], 123.46)
-        self.assertEqual(result["quote"], quote)
+        for field in ('price', 'provider', 'symbol', 'market_timestamp', 'received_at', 'quality_score'):
+            self.assertEqual(result['quote'][field], quote[field])
+        self.assertTrue(result['quote']['is_stale'])
+        self.assertFalse(result['pnl_reliable'])
         difference_pct = abs(result["price"] - round(quote["price"], 2)) / quote["price"] * 100
         self.assertLessEqual(difference_pct, 0.10)
 

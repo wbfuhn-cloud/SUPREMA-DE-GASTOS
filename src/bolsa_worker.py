@@ -9,6 +9,8 @@ import socket
 import subprocess
 import threading
 import time
+import logging
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,11 +46,33 @@ def detect_compute_backend() -> dict:
     }
 
 
-def _write_status(payload: dict) -> None:
+def _write_status(payload: dict) -> bool:
     STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = STATUS_FILE.with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporary, STATUS_FILE)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=STATUS_FILE.parent,
+                                         prefix="bolsa-status-", suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump(payload, handle, ensure_ascii=False)
+        for attempt in range(6):
+            try:
+                os.replace(temporary, STATUS_FILE)
+                return True
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+    except OSError as exc:
+        # Un lector/antivirus puede bloquear el rename en Windows. El siguiente
+        # heartbeat reintenta; jamás derribar los trabajos por telemetría.
+        logging.getLogger(__name__).warning("No se pudo publicar heartbeat: %s", exc)
+        return False
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _acquire_singleton() -> socket.socket:
@@ -98,8 +122,10 @@ def run() -> int:
                 "compute": compute,
             })
     finally:
-        _write_status({"status": "stopped", "pid": os.getpid(), "heartbeat_utc": _utc_now(), "compute": compute})
-        lock.close()
+        try:
+            _write_status({"status": "stopped", "pid": os.getpid(), "heartbeat_utc": _utc_now(), "compute": compute})
+        finally:
+            lock.close()
     return 0
 
 

@@ -35,14 +35,21 @@ def _data_quality(results: list[dict[str, Any]]) -> dict[str, Any]:
                 values.append(numeric)
         except (TypeError, ValueError):
             continue
-    passing = sum(value >= MIN_DATA_QUALITY for value in values)
+    passing = sum(
+        row.get('Signal_Eligible') is True and not (row.get('Quote') or {}).get('is_stale', True)
+        and float(row.get('Data_Quality') or 0) >= MIN_DATA_QUALITY for row in results)
+    used = [row for row in results if row.get('Signal_Eligible') is True]
+    used_valid = bool(used) and all(
+        float(row.get('Data_Quality') or 0) >= MIN_DATA_QUALITY
+        and not (row.get('Quote') or {}).get('is_stale', True) for row in used)
     return {
         "observed": len(values),
         "passing": passing,
         "minimum": min(values) if values else None,
         "average": (sum(values) / len(values)) if values else None,
         "threshold": MIN_DATA_QUALITY,
-        "approved": bool(values) and passing == len(values),
+        "approved": used_valid,
+        "signal_observations": len(used),
     }
 
 
@@ -119,7 +126,7 @@ def build_maturity_status(*, paper_metrics: dict[str, Any], paper_gate: dict[str
                          "detail": "Validar disponibilidad, desviación, valor esperado, drawdown y kill switch."}
 
     return {
-        "technical": {"completed": 12, "total": 12, "label": "Implementación técnica terminada"},
+        "technical": {"completed": None, "total": 12, "label": "Implementado; aprobación operativa pendiente"},
         "current_phase": phase,
         "solidity": solidity,
         "evidence": evidence,

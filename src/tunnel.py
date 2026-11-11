@@ -120,9 +120,9 @@ class TunnelManager:
                     # Buscar URL .trycloudflare.com
                     # Ejemplo regex: https://[a-z0-9-]+\.trycloudflare\.com
                     if not url_mined:
-                        match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+                        match = re.search(r'\|\s*(https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com)\s*\|\s*$', line, re.IGNORECASE)
                         if match:
-                            TunnelManager._public_url = match.group(0)
+                            TunnelManager._public_url = match.group(1)
                             url_mined = True
                             logger.info(f"[TUNNEL] Tunel Cloudflare Activo: {TunnelManager._public_url}")
                             print(f"\n[TUNNEL] DASHBOARD PUBLICO: {TunnelManager._public_url}/dashboard\n")

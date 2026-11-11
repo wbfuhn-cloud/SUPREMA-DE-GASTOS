@@ -52,6 +52,11 @@ class _NyseCalendar:
         }
         if year >= 2022:
             holidays.add(_observed(date(year, 6, 19)))
+        if year == 2025:
+            holidays.add(date(2025, 1, 9))
+        observed_next = _observed(date(year + 1, 1, 1))
+        if observed_next.year == year:
+            holidays.add(observed_next)
         return holidays
 
     def is_session(self, day: date) -> bool:

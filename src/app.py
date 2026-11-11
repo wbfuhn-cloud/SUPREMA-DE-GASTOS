@@ -65,6 +65,10 @@ class TextHandler(logging.Handler):
         self.log_queue = log_queue
 
     def emit(self, record):
+        # No modificar el registro que también reciben otros handlers.
+        import copy
+        import re
+        record = copy.copy(record)
         # La librería de Telegram adjunta un traceback completo a fallos DNS
         # transitorios aunque su propio bucle vaya a reintentar. En la GUI
         # basta un aviso corto; errores no transitorios conservan su traceback.
@@ -78,6 +82,8 @@ class TextHandler(logging.Handler):
             record.msg = "[TELEGRAM] Red temporalmente no disponible; reintentando automáticamente."
             record.args = ()
         msg = self.format(record)
+        # HTTPX incluye la credencial del bot dentro de la URL de Telegram.
+        msg = re.sub(r"(api\.telegram\.org/bot)[^/\s\"']+", r"\1[OCULTO]", msg)
         self.log_queue.put(msg)
 
 
@@ -208,6 +214,8 @@ class BotGUI(ctk.CTk):
         handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
+        # Evitar una línea por cada consulta de Telegram en la ventana.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
 
     def _init_ui(self):
         self.grid_columnconfigure(0, weight=1)
@@ -323,7 +331,8 @@ class BotGUI(ctk.CTk):
             except Exception as e:
                 logging.error(f"Error fatal en bot/túnel: {e}", exc_info=True)
                 from tkinter import messagebox
-                self.after(0, lambda: messagebox.showerror("Error del Bot", f"El bot se detuvo por un error:\n{e}"))
+                detail = f"El bot se detuvo por un error:\n{e}"
+                self.after(0, messagebox.showerror, "Error del Bot", detail)
             finally:
                 monitor_stop_event.set()
                 stop_bolsa_worker(self.bolsa_worker_process)
@@ -350,7 +359,7 @@ class BotGUI(ctk.CTk):
                 if url:
                     try:
                         import requests
-                        requests.get(f"{url}/dashboard", timeout=10)
+                        requests.get(f"{url}/dashboard", timeout=10).raise_for_status()
                         logging.info(f"[{now}] Sistema activo — túnel {url} refrescado.")
                     except Exception:
                         logging.warning(f"[{now}] Sistema activo — no se pudo contactar el túnel.")

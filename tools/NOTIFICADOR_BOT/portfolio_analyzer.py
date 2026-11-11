@@ -12,7 +12,7 @@ from stock_scanner import (
     calculate_rsi, calculate_macd, calculate_bollinger_bands,
     _get_usd_mxn, LEVERAGED_ETFS
 )
-from market_data import exchange_rate_contract, quote_from_history
+from market_data import exchange_rate_contract, quote_from_history, ensure_quote_contract
 from technical_engine import HEURISTIC_VERSION, evaluate_heuristic
 from signal_fusion import FUSION_VERSION, FusionInput, fuse_signal
 from portfolio_status import classify_portfolio_position
@@ -31,6 +31,10 @@ def analyze_ticker_strategy(
     """Análisis técnico completo con veredicto de acción para un ticker."""
     try:
         df = _fetch_history_raw(ticker_symbol, period='1y')
+        if quote_override:
+            if quote_override.get('symbol') != ticker_symbol.upper():
+                raise ValueError('La cotización canónica no corresponde al ticker')
+            quote_override = ensure_quote_contract({'Quote': quote_override})
 
         if df is None or len(df) < 50:
             if quote_override and quote_override.get("price") is not None:
@@ -42,6 +46,7 @@ def analyze_ticker_strategy(
                     data_quality=float(quote_override.get("quality_score", 0.0)),
                     is_leveraged=is_leveraged,
                     quote_adjusted=bool(quote_override.get("adjusted", False)),
+                    quote_stale=quote_override.get('is_stale', True),
                 )
                 return {
                     "ticker": ticker_symbol,
@@ -110,8 +115,8 @@ def analyze_ticker_strategy(
                     reasons.append("Ganancia >15%: evaluar reducción de riesgo")
             else:
                 reasons.append(f"🔻 Pérdida actual: {pl_pct:.1f}%")
-                if pl_pct < -10:
-                    reasons.append("Pérdida <-10%: regla de salida de protección")
+                if pl_pct <= -15:
+                    reasons.append("Pérdida de 15% o más: umbral de protección")
 
         regime_map = {
             'uptrend': 'alcista', 'lateral': 'lateral', 'noise': 'lateral',
@@ -128,7 +133,7 @@ def analyze_ticker_strategy(
             atr=float(heuristic['indicators'].get('atr') or 0.0),
             has_position=entry_price > 0 and qty > 0,
             model_approved=False,
-            stop_triggered=entry_price > 0 and pl_pct < -10,
+            stop_triggered=entry_price > 0 and pl_pct <= -15,
             profit_take_triggered=entry_price > 0 and pl_pct > 15,
             position_concentration=0.0,
             aggregate_open_risk=0.0,
@@ -146,10 +151,13 @@ def analyze_ticker_strategy(
             weekly_change_pct=weekly_change_pct,
             trend_state=heuristic["horizons"]["trend"].get("state"),
             upside_scenario_3m_pct=upside_scenario_3m_pct,
+            quote_stale=quote.get('is_stale', True),
         )
 
         return {
             "ticker":       ticker_symbol,
+            "instrument_name": df.attrs.get('instrument_name') or ticker_symbol,
+            "research_only": True,
             "price":        round(price, 2),
             "entry_price":  entry_price,
             "qty":          qty,

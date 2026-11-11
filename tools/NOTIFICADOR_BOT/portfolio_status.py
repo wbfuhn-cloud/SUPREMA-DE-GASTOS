@@ -14,7 +14,9 @@ def classify_portfolio_position(*, pl_pct: float | None, signal_state: str | Non
                                 quote_adjusted: bool = True,
                                 weekly_change_pct: float | None = None,
                                 trend_state: str | None = None,
-                                upside_scenario_3m_pct: float | None = None) -> dict[str, Any]:
+                                upside_scenario_3m_pct: float | None = None,
+                                quote_stale: bool = False,
+                                model_validated: bool = False) -> dict[str, Any]:
     """Clasifica una posición sin confundir ganancia nominal con acierto de IA."""
     state = str(signal_state or "SIN SEÑAL").upper()
     quality_ok = data_quality >= MINIMUM_DATA_QUALITY
@@ -26,11 +28,24 @@ def classify_portfolio_position(*, pl_pct: float | None, signal_state: str | Non
     scenario = (round(float(upside_scenario_3m_pct), 1)
                 if upside_scenario_3m_pct is not None else None)
 
-    if loss is not None and loss <= -10.0:
+    if not model_validated:
+        price_reliable = quality_ok and not quote_stale and not corporate_action_risk
+        loss_alert = price_reliable and loss is not None and loss <= -15
+        return {
+            'color': 'red' if loss_alert else 'yellow',
+            'label': 'REVISAR RIESGO' if loss_alert else 'ANÁLISIS EXPERIMENTAL',
+            'reason': (f'Variación registrada respecto a tu entrada: {loss:+.2f}%.'
+                       if price_reliable and loss is not None else 'Precio o calidad pendientes de verificación.'),
+            'summary': 'No hay una recomendación de compra, mantenimiento o venta validada para esta posición.',
+            'monitoring_note': 'Comprueba símbolo, precio y fecha con tu intermediario. El modelo sigue en validación.',
+            'confidence': 'modelo no validado', 'pnl_reliable': price_reliable,
+        }
+
+    if loss is not None and loss <= -15.0:
         return {
             "color": "red",
             "label": "SALIDA PRIORITARIA",
-            "reason": "Pérdida de 10% o más; se activó el límite de protección.",
+            "reason": "Pérdida de 15% o más; se activó el límite de protección.",
             "summary": "VENDE O REDUCE: valida el precio y protege el capital antes de perder más.",
             "monitoring_note": "Si sales, el sistema seguirá observando una posible señal de reentrada.",
             "confidence": "normal" if trusted else "baja: validar precio antes de ejecutar",
