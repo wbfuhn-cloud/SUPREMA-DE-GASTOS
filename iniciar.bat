@@ -9,21 +9,16 @@ echo ===================================================
 
 set "PYTHON=%~dp0.venv\Scripts\python.exe"
 set "FORCE_SETUP=0"
-set "DO_UPDATE=0"
 if /I "%~1"=="--setup" set "FORCE_SETUP=1"
-if /I "%~1"=="--update" set "DO_UPDATE=1"
 
-if "%DO_UPDATE%"=="1" (
-    if exist ".git" (
-        echo [*] Actualizando desde origin/main...
-        git pull --ff-only origin main
-        if errorlevel 1 echo [!] No se pudo actualizar. Se usara la copia local.
-    ) else (
-        echo [!] Esta carpeta no contiene un repositorio Git.
-    )
+if exist ".git" (
+    echo [*] Comprobando actualizaciones en GitHub antes de iniciar...
+    set "GIT_TERMINAL_PROMPT=0"
+    git pull --ff-only origin main
+    if errorlevel 1 echo [!] No se pudo actualizar; se iniciara la copia local sin sobrescribir cambios.
+) else (
+    echo [!] Esta carpeta no contiene un repositorio Git; se iniciara la copia local.
 )
-
-echo [*] El actualizador de GitHub comprobara nuevas versiones al abrir la aplicacion.
 
 if not exist "%PYTHON%" (
     echo [*] Creando el entorno virtual...
@@ -64,3 +59,4 @@ exit /b 1
 echo [ERROR] No se pudieron instalar las dependencias.
 pause
 exit /b 1
+
