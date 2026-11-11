@@ -187,6 +187,8 @@ class BotGUI(ctk.CTk):
         self.bot_thread:   threading.Thread | None = None
         self.bot_instance: ExpenseBot | None       = None
         self.bolsa_worker_process = None
+        self.web_thread = None
+        self.web_port = None
         self.stop_event = threading.Event()
         self.log_queue: queue.Queue = queue.Queue()
 
@@ -245,13 +247,6 @@ class BotGUI(ctk.CTk):
             logging.warning("El bot ya está en ejecución.")
             return
 
-        try:
-            Config.validate()
-        except ValueError as exc:
-            logging.error('%s. Copia tu .env de la instalación anterior a esta carpeta.', exc)
-            self.status_label.configure(text='Estado: FALTA CONFIGURACIÓN', text_color='red')
-            return
-
         self.stop_event.clear()
         self.start_button.configure(state="disabled", text="Iniciando...")
         self.stop_button.configure(state="normal")
@@ -271,14 +266,27 @@ class BotGUI(ctk.CTk):
                     return start_port
 
                 base_port = int(os.environ.get("APP_PORT", 5050))
-                port = find_free_port(base_port)
+                web_running = self.web_thread is not None and self.web_thread.is_alive()
+                port = self.web_port if web_running else find_free_port(base_port)
                 os.environ["APP_PORT"] = str(port)  # Guardar para el túnel y reinicios
                 
                 logging.info(f"Iniciando Servidor Web (Puerto {port}) de inmediato...")
                 local_ip = get_local_ip()
                 dashboard_url = f"http://{local_ip}:{port}/dashboard"
                 
-                # Instanciar el bot primero para pasarlo al servidor
+                # La web debe arrancar aunque Telegram o Gemini no estén disponibles.
+                if not web_running:
+                    self.web_port = port
+                    self.web_thread = threading.Thread(
+                        target=run_server,
+                        kwargs={'port': port, 'start_jobs': False},
+                        daemon=True,
+                    )
+                    self.web_thread.start()
+                logging.info(f"Dashboard local: {dashboard_url}")
+                self.after(1000, lambda: webbrowser.open(dashboard_url))
+
+                Config.validate()
                 logging.info("Cargando componentes del Bot...")
                 self.bot_instance = ExpenseBot(
                     self.token,
@@ -292,13 +300,6 @@ class BotGUI(ctk.CTk):
                 from src.server import app as flask_app
                 flask_app.config['BOT_INSTANCE'] = self.bot_instance
                 
-                server_thread = threading.Thread(
-                    target=run_server,
-                    kwargs={'port': port, 'bot_instance': self.bot_instance, 'start_jobs': False},
-                    daemon=True
-                )
-                server_thread.start()
-
                 # Bolsa ejecuta descargas, indicadores y seguimiento en otro
                 # proceso para no retrasar Telegram, correo BAZ ni la GUI.
                 self.bolsa_worker_process = start_bolsa_worker()
@@ -309,11 +310,6 @@ class BotGUI(ctk.CTk):
                 self.after(0, lambda: self.status_label.configure(
                     text="Estado: EN LÍNEA", text_color="green"
                 ))
-
-                # Abrir dashboard local
-                logging.info(f"Dashboard local: {dashboard_url}")
-                logging.info("=" * 60)
-                self.after(1000, lambda: webbrowser.open(dashboard_url))
 
                 # Iniciar el monitor de correos de gastos.
                 logging.info("Iniciando Monitor BAZ...")
@@ -377,7 +373,11 @@ class BotGUI(ctk.CTk):
     def _reset_ui(self):
         self.start_button.configure(state="normal", text=" Iniciar Bot")
         self.stop_button.configure(state="disabled")
-        self.status_label.configure(text="Estado: DETENIDO", text_color="red")
+        web_running = self.web_thread is not None and self.web_thread.is_alive()
+        self.status_label.configure(
+            text="Estado: WEB ACTIVA / BOT DETENIDO" if web_running else "Estado: DETENIDO",
+            text_color="orange" if web_running else "red",
+        )
 
     def stop_bot(self):
         if "DETENIENDO" in self.status_label.cget("text"):

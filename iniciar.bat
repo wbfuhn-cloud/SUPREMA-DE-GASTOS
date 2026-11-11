@@ -33,6 +33,9 @@ if not exist "%PYTHON%" (
     set "FORCE_SETUP=1"
 )
 
+"%PYTHON%" -c "import socksio" >nul 2>&1
+if errorlevel 1 set "FORCE_SETUP=1"
+
 if "%FORCE_SETUP%"=="1" (
     echo [*] Instalando dependencias. Esto solo se hace en la configuracion...
     "%PYTHON%" -m pip install -r requirements.txt
